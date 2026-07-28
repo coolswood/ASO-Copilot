@@ -1,6 +1,7 @@
 import gplay from "google-play-scraper";
 import * as cheerio from "cheerio";
 import type { StoreListing, StoreSearchHit, StoreReview } from "./types";
+import { withRetry } from "../withRetry";
 
 /** google-play-scraper returns some text fields (notably `summary`) with
  * un-decoded HTML entities (e.g. "Coin identifier &amp; scanner"). */
@@ -55,7 +56,7 @@ export async function lookupByAppId(
   country = "us",
 ): Promise<StoreListing | null> {
   try {
-    const app = await gplay.app({ appId, country });
+    const app = await withRetry(() => gplay.app({ appId, country }));
     return toListing(app);
   } catch {
     return null;
@@ -67,7 +68,7 @@ export async function searchApps(
   country = "us",
   limit = 30,
 ): Promise<StoreSearchHit[]> {
-  const results = await gplay.search({ term, num: limit, country });
+  const results = await withRetry(() => gplay.search({ term, num: limit, country }));
   return results.map((r) => ({
     storeId: r.appId,
     name: r.title,
@@ -84,7 +85,7 @@ export async function findRank(
   country = "us",
   maxPositions = 100,
 ): Promise<number | null> {
-  const results = await gplay.search({ term, num: Math.min(maxPositions, 250), country });
+  const results = await withRetry(() => gplay.search({ term, num: Math.min(maxPositions, 250), country }));
   const index = results.findIndex((r) => r.appId === appId);
   return index === -1 ? null : index + 1;
 }
@@ -100,7 +101,7 @@ const SORT_NEWEST = 2;
 
 export async function fetchReviews(appId: string, country = "us", num = 100): Promise<StoreReview[]> {
   try {
-    const { data } = await gplay.reviews({ appId, country, sort: SORT_NEWEST, num });
+    const { data } = await withRetry(() => gplay.reviews({ appId, country, sort: SORT_NEWEST, num }));
     return data.map((r) => ({
       externalId: r.id,
       rating: r.score ?? null,
@@ -120,7 +121,7 @@ export async function autocompleteSuggestions(
   country = "us",
 ): Promise<string[]> {
   try {
-    return await gplay.suggest({ term, country });
+    return await withRetry(() => gplay.suggest({ term, country }));
   } catch {
     return [];
   }
@@ -136,7 +137,7 @@ export async function analyzeTerm(
   term: string,
   country = "us",
 ): Promise<{ resultCount: number; topAuthority: number }> {
-  const basic = await gplay.search({ term, num: 50, country });
+  const basic = await withRetry(() => gplay.search({ term, num: 50, country }));
   const words = term.toLowerCase().split(/\s+/).filter(Boolean);
   const relevant = basic.filter((r) => words.every((w) => (r.title ?? "").toLowerCase().includes(w)));
 
@@ -146,7 +147,7 @@ export async function analyzeTerm(
     const ratings = await Promise.all(
       topRelevant.map(async (r) => {
         try {
-          const app = await gplay.app({ appId: r.appId, country });
+          const app = await withRetry(() => gplay.app({ appId: r.appId, country }));
           return app.ratings ?? 0;
         } catch {
           return 0;

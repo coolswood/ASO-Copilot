@@ -43,6 +43,9 @@ volume or keyword rank position, so:
 - iOS **subtitle** is scraped from the public App Store product page (not exposed by the iTunes
   API). If Apple changes their page markup this can silently start returning `null` — see
   `fetchSubtitle` in `src/lib/stores/appstore.ts`.
+- Every store call (both platforms) retries transient failures (429s, 5xx, network errors) with
+  backoff via `src/lib/withRetry.ts`, so one rate-limited request doesn't fail an entire daily
+  tracking pass.
 
 ## Setup
 
@@ -107,8 +110,19 @@ repo root pointing at localhost):
 }
 ```
 
-There's no auth on this endpoint by default — it has full read/write access to your ASO data, so
-don't expose it on the public internet without adding your own auth in front of it.
+There's no auth on this endpoint by default — it has full read/write access to your ASO data. Set
+`MCP_AUTH_TOKEN` in `.env` before exposing it beyond localhost, then have your client send it:
+
+```json
+{
+  "mcpServers": {
+    "aso-copilot": {
+      "url": "http://localhost:3000/api/mcp",
+      "headers": { "Authorization": "Bearer <MCP_AUTH_TOKEN>" }
+    }
+  }
+}
+```
 
 ## AI Copy Suggestions
 

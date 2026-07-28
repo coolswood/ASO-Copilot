@@ -1,7 +1,15 @@
 import * as cheerio from "cheerio";
 import type { StoreListing, StoreSearchHit, StoreReview } from "./types";
+import { HttpError, isRetryableStatus, withRetry } from "../withRetry";
 
 const BASE = "https://itunes.apple.com";
+
+/** Retries only network errors and 429/5xx - a genuine 4xx (bad request,
+ * not found) won't succeed on retry, so it fails fast instead of wasting
+ * three attempts on something that'll never work. */
+function shouldRetryFetch(e: unknown): boolean {
+  return e instanceof HttpError ? isRetryableStatus(e.status) : true;
+}
 
 interface ITunesResult {
   trackId: number;
@@ -23,12 +31,17 @@ interface ITunesResult {
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, {
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; ASO-tracker/1.0)" },
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`iTunes request failed: ${res.status}`);
-  return res.json() as Promise<T>;
+  return withRetry(
+    async () => {
+      const res = await fetch(url, {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; ASO-tracker/1.0)" },
+        cache: "no-store",
+      });
+      if (!res.ok) throw new HttpError(res.status, `iTunes request failed: ${res.status}`);
+      return res.json() as Promise<T>;
+    },
+    { shouldRetry: shouldRetryFetch },
+  );
 }
 
 function toListing(r: ITunesResult): StoreListing {
@@ -61,12 +74,17 @@ function toListing(r: ITunesResult): StoreListing {
  * the page structure doesn't match (Apple changes markup periodically). */
 export async function fetchSubtitle(trackViewUrl: string): Promise<string | null> {
   try {
-    const res = await fetch(trackViewUrl, {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; ASO-tracker/1.0)" },
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    const html = await res.text();
+    const html = await withRetry(
+      async () => {
+        const res = await fetch(trackViewUrl, {
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; ASO-tracker/1.0)" },
+          cache: "no-store",
+        });
+        if (!res.ok) throw new HttpError(res.status, `subtitle page fetch failed: ${res.status}`);
+        return res.text();
+      },
+      { shouldRetry: shouldRetryFetch },
+    );
     const $ = cheerio.load(html);
     const subtitle = $("p.subtitle, h2.product-header__subtitle").first().text().trim();
     return subtitle || null;
@@ -129,16 +147,21 @@ export async function findRank(
  * if Apple changes or throttles the endpoint. */
 export async function autocompleteSuggestions(term: string, country = "us"): Promise<string[]> {
   try {
-    const res = await fetch(
-      `https://search.itunes.apple.com/WebObjects/MZSearchHints.woa/wa/hints?clientApplication=Software&country=${country}&term=${encodeURIComponent(term)}`,
-      {
-        method: "POST",
-        headers: { "User-Agent": "Mozilla/5.0 (compatible; ASO-tracker/1.0)" },
-        cache: "no-store",
+    const data = await withRetry(
+      async () => {
+        const res = await fetch(
+          `https://search.itunes.apple.com/WebObjects/MZSearchHints.woa/wa/hints?clientApplication=Software&country=${country}&term=${encodeURIComponent(term)}`,
+          {
+            method: "POST",
+            headers: { "User-Agent": "Mozilla/5.0 (compatible; ASO-tracker/1.0)" },
+            cache: "no-store",
+          },
+        );
+        if (!res.ok) throw new HttpError(res.status, `autocomplete hints fetch failed: ${res.status}`);
+        return (await res.json()) as { hints?: { term?: string }[] };
       },
+      { shouldRetry: shouldRetryFetch },
     );
-    if (!res.ok) return [];
-    const data = (await res.json()) as { hints?: { term?: string }[] };
     return (data.hints ?? [])
       .map((h) => h.term?.toLowerCase().trim())
       .filter((t): t is string => Boolean(t));

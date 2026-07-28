@@ -612,4 +612,27 @@ const handler = createMcpHandler(
   { basePath: "/api", maxDuration: 300, verboseLogs: false },
 );
 
-export { handler as GET, handler as POST, handler as DELETE };
+// Optional bearer-token gate, same shared-secret pattern as /api/track's
+// CRON_SECRET. Off by default (MCP_AUTH_TOKEN unset) to match this repo's
+// documented "no auth on this endpoint by default" - set it before exposing
+// the app beyond localhost, since this endpoint otherwise has full
+// read/write access to your ASO data. A full OAuth flow (mcp-handler's
+// withMcpAuth) would need a resource-metadata endpoint this single-user
+// tool has no use for - a shared secret matches the rest of the app.
+function isAuthorized(req: Request): boolean {
+  const token = process.env.MCP_AUTH_TOKEN;
+  if (!token) return true;
+  return req.headers.get("authorization") === `Bearer ${token}`;
+}
+
+async function withAuth(req: Request): Promise<Response> {
+  if (!isAuthorized(req)) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  return handler(req);
+}
+
+export { withAuth as GET, withAuth as POST, withAuth as DELETE };
