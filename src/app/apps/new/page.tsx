@@ -3,9 +3,10 @@
 import { useState } from "react";
 import AppSearchPicker, { SearchHit } from "@/components/AppSearchPicker";
 import AddAppProgress from "@/components/AddAppProgress";
+import type { StorePlatform } from "@/lib/stores/types";
 
 export default function NewAppPage() {
-  const [selected, setSelected] = useState<{ hit: SearchHit; platform: "IOS" | "ANDROID" } | null>(null);
+  const [selected, setSelected] = useState<{ hit: SearchHit; platform: StorePlatform } | null>(null);
 
   if (selected) {
     return (

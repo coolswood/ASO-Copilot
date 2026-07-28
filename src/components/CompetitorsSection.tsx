@@ -5,6 +5,8 @@ import { useState } from "react";
 import { Users } from "lucide-react";
 import AppSearchPicker, { SearchHit } from "./AppSearchPicker";
 import AppIcon from "./AppIcon";
+import { appStoreSearchUrl, playStoreListingUrl } from "@/lib/storeLinks";
+import type { StorePlatform } from "@/lib/stores/types";
 
 interface CompetitorRank {
   keywordId: string;
@@ -30,16 +32,10 @@ function latestByKeyword(ranks: CompetitorRank[]): Map<string, CompetitorRank> {
   return map;
 }
 
-// Google Play URLs resolve directly from the package id we already store.
-// Apple's product page URLs need the numeric trackId (not the bundleId this
-// app is tracked by), which we don't have on hand here, so iOS falls back to
-// an exact-name App Store search - same convention already used for
-// per-keyword store links elsewhere in this app.
-function competitorUrl(platform: "IOS" | "ANDROID", storeId: string, name: string): string {
-  if (platform === "ANDROID") {
-    return `https://play.google.com/store/apps/details?id=${encodeURIComponent(storeId)}`;
-  }
-  return `https://apps.apple.com/us/search?term=${encodeURIComponent(name)}`;
+// iOS falls back to an exact-name App Store search rather than a direct
+// listing link - see playStoreListingUrl's doc comment for why.
+function competitorUrl(platform: StorePlatform, storeId: string, name: string): string {
+  return platform === "ANDROID" ? playStoreListingUrl(storeId) : appStoreSearchUrl(name);
 }
 
 export default function CompetitorsSection({
@@ -49,7 +45,7 @@ export default function CompetitorsSection({
   keywords,
 }: {
   appId: string;
-  platform: "IOS" | "ANDROID";
+  platform: StorePlatform;
   competitors: CompetitorWithRanks[];
   keywords: { id: string; term: string }[];
 }) {

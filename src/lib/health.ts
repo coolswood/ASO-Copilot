@@ -1,5 +1,20 @@
 import type { StorePlatform } from "./stores/types";
 
+export interface HealthScoreTier {
+  label: string;
+  color: string;
+  soft: string;
+}
+
+/** Single source of truth for the 80/60 health-score color breakpoints -
+ * previously copy-pasted (with the same thresholds but different return
+ * shapes) across the dashboard, HealthGauge, AppCard, and AddAppProgress. */
+export function healthScoreTier(score: number): HealthScoreTier {
+  if (score >= 80) return { label: "Excellent", color: "var(--success)", soft: "var(--success-soft)" };
+  if (score >= 60) return { label: "Needs Work", color: "var(--warning)", soft: "var(--warning-soft)" };
+  return { label: "Poor", color: "var(--danger)", soft: "var(--danger-soft)" };
+}
+
 export interface HealthMetadataInput {
   platform: StorePlatform;
   title: string | null;

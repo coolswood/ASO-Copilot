@@ -6,6 +6,8 @@ import Link from "next/link";
 import { Check, Loader2 } from "lucide-react";
 import AppIcon from "./AppIcon";
 import type { SearchHit } from "./AppSearchPicker";
+import { healthScoreTier } from "@/lib/health";
+import type { StorePlatform } from "@/lib/stores/types";
 
 type StageEvent =
   | { stage: "listing"; name: string; iconUrl: string | null; developer: string | null; subtitle: string | null; category: string | null }
@@ -25,19 +27,13 @@ const STEPS = [
   { key: "health", label: "Computing health score" },
 ] as const;
 
-function scoreColor(score: number): string {
-  if (score >= 80) return "var(--success)";
-  if (score >= 60) return "var(--warning)";
-  return "var(--danger)";
-}
-
 function StepStatus({ status }: { status: "pending" | "active" | "done" }) {
   if (status === "done") return <Check className="h-4 w-4 shrink-0" style={{ color: "var(--success)" }} />;
   if (status === "active") return <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent" />;
   return <span className="h-4 w-4 shrink-0 rounded-full border border-border" />;
 }
 
-export default function AddAppProgress({ hit, platform }: { hit: SearchHit; platform: "IOS" | "ANDROID" }) {
+export default function AddAppProgress({ hit, platform }: { hit: SearchHit; platform: StorePlatform }) {
   const router = useRouter();
   const [stageIdx, setStageIdx] = useState(0);
   const [subtitle, setSubtitle] = useState<string | null>(null);
@@ -186,7 +182,7 @@ export default function AddAppProgress({ hit, platform }: { hit: SearchHit; plat
               {step.key === "health" && healthScore !== null && (
                 <div className="animate-fade-in-up mt-2 text-sm">
                   Health score:{" "}
-                  <span className="font-semibold" style={{ color: scoreColor(healthScore) }}>
+                  <span className="font-semibold" style={{ color: healthScoreTier(healthScore).color }}>
                     {healthScore}
                   </span>
                 </div>

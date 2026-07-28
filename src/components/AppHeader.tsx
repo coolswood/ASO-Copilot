@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ExternalLink, RefreshCw } from "lucide-react";
 import AppIcon from "./AppIcon";
+import type { StorePlatform } from "@/lib/stores/types";
 
 export default function AppHeader({
   id,
@@ -19,7 +20,7 @@ export default function AppHeader({
   id: string;
   name: string;
   iconUrl: string | null;
-  platform: "IOS" | "ANDROID";
+  platform: StorePlatform;
   developer: string | null;
   url: string | null;
   rating: number | null;

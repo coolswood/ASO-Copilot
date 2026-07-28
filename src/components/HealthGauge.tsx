@@ -1,11 +1,7 @@
-function statusFor(score: number): { label: string; color: string } {
-  if (score >= 80) return { label: "Excellent", color: "var(--success)" };
-  if (score >= 60) return { label: "Needs Work", color: "var(--warning)" };
-  return { label: "Poor", color: "var(--danger)" };
-}
+import { healthScoreTier } from "@/lib/health";
 
 export default function HealthGauge({ score, size = 120 }: { score: number; size?: number }) {
-  const { label, color } = statusFor(score);
+  const { label, color } = healthScoreTier(score);
   const strokeWidth = size < 100 ? 6 : 8;
   const radius = size / 2 - strokeWidth;
   const circumference = 2 * Math.PI * radius;

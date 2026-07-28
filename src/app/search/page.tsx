@@ -5,6 +5,8 @@ import { Search as SearchIcon, SearchX, SlidersHorizontal } from "lucide-react";
 import { SiAppstore, SiGoogleplay } from "react-icons/si";
 import AppIcon from "@/components/AppIcon";
 import MetricBar from "@/components/MetricBar";
+import { appStoreSearchUrl, playStoreSearchUrl } from "@/lib/storeLinks";
+import type { StorePlatform } from "@/lib/stores/types";
 
 interface RankingApp {
   storeId: string;
@@ -18,14 +20,6 @@ interface KeywordIdea {
   difficulty: number;
   resultCount: number;
   apps: RankingApp[];
-}
-
-function appStoreSearchUrl(term: string): string {
-  return `https://apps.apple.com/us/search?term=${encodeURIComponent(term)}`;
-}
-
-function playStoreSearchUrl(term: string): string {
-  return `https://play.google.com/store/search?q=${encodeURIComponent(term)}&c=apps`;
 }
 
 const APPS_SHOWN = 5;
@@ -71,7 +65,7 @@ function clamp(value: number): number {
 }
 
 export default function KeywordSearchPage() {
-  const [platform, setPlatform] = useState<"IOS" | "ANDROID">("ANDROID");
+  const [platform, setPlatform] = useState<StorePlatform>("ANDROID");
   const [term, setTerm] = useState("");
   const [deep, setDeep] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -131,7 +125,7 @@ export default function KeywordSearchPage() {
       <div className="animate-fade-in-up [animation-delay:60ms] flex flex-wrap items-center gap-2">
         <select
           value={platform}
-          onChange={(e) => setPlatform(e.target.value as "IOS" | "ANDROID")}
+          onChange={(e) => setPlatform(e.target.value as StorePlatform)}
           className="rounded-lg border border-border bg-card px-3 py-2 text-sm transition-colors hover:border-accent"
         >
           <option value="ANDROID">Google Play</option>

@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Search, SearchX, Sparkles, Users } from "lucide-react";
 import { SiAppstore, SiGoogleplay } from "react-icons/si";
+import { metricColor } from "@/lib/metricColor";
+import { appStoreSearchUrl, playStoreSearchUrl } from "@/lib/storeLinks";
 
 interface Suggestion {
   term: string;
@@ -16,22 +18,6 @@ interface NewCompetitor {
   id: string;
   name: string;
   iconUrl: string | null;
-}
-
-function metricColor(value: number, inverse = false): string {
-  const good = inverse ? value <= 40 : value >= 60;
-  const mid = inverse ? value <= 70 : value >= 30;
-  if (good) return "var(--success)";
-  if (mid) return "var(--warning)";
-  return "var(--danger)";
-}
-
-function appStoreSearchUrl(term: string): string {
-  return `https://apps.apple.com/us/search?term=${encodeURIComponent(term)}`;
-}
-
-function playStoreSearchUrl(term: string): string {
-  return `https://play.google.com/store/search?q=${encodeURIComponent(term)}&c=apps`;
 }
 
 export default function ResearchSection({ appId }: { appId: string }) {

@@ -1,12 +1,8 @@
 import Link from "next/link";
 import { SiAppstore, SiGoogleplay } from "react-icons/si";
 import AppIcon from "./AppIcon";
-
-function scoreColor(score: number): string {
-  if (score >= 80) return "var(--success)";
-  if (score >= 60) return "var(--warning)";
-  return "var(--danger)";
-}
+import { healthScoreTier } from "@/lib/health";
+import type { StorePlatform } from "@/lib/stores/types";
 
 function MiniScoreRing({ score }: { score: number }) {
   const size = 40;
@@ -14,7 +10,7 @@ function MiniScoreRing({ score }: { score: number }) {
   const radius = size / 2 - strokeWidth;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference * (1 - score / 100);
-  const color = scoreColor(score);
+  const color = healthScoreTier(score).color;
 
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
@@ -57,7 +53,7 @@ export default function AppCard({
   id: string;
   name: string;
   iconUrl: string | null;
-  platform: "IOS" | "ANDROID";
+  platform: StorePlatform;
   keywordCount: number;
   competitorCount: number;
   healthScore: number | null;

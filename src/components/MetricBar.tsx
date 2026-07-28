@@ -1,10 +1,4 @@
-function metricColor(value: number, inverse = false): string {
-  const good = inverse ? value <= 40 : value >= 60;
-  const mid = inverse ? value <= 70 : value >= 30;
-  if (good) return "var(--success)";
-  if (mid) return "var(--warning)";
-  return "var(--danger)";
-}
+import { metricColor } from "@/lib/metricColor";
 
 export default function MetricBar({ value, inverse = false }: { value: number; inverse?: boolean }) {
   const color = metricColor(value, inverse);

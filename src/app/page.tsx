@@ -2,12 +2,7 @@ import Link from "next/link";
 import { Gauge, LayoutGrid, Tags } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import AppCard from "@/components/AppCard";
-
-function scoreColors(score: number): { color: string; soft: string } {
-  if (score >= 80) return { color: "var(--success)", soft: "var(--success-soft)" };
-  if (score >= 60) return { color: "var(--warning)", soft: "var(--warning-soft)" };
-  return { color: "var(--danger)", soft: "var(--danger-soft)" };
-}
+import { healthScoreTier } from "@/lib/health";
 
 export default async function Home() {
   const apps = await prisma.app.findMany({
@@ -59,9 +54,9 @@ export default async function Home() {
           <div className="card-hover flex items-center gap-3 rounded-xl border border-border bg-card p-4 hover:border-accent/40">
             <div
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
-              style={{ background: avgScore !== null ? scoreColors(avgScore).soft : "var(--border)" }}
+              style={{ background: avgScore !== null ? healthScoreTier(avgScore).soft : "var(--border)" }}
             >
-              <Gauge className="h-4 w-4" style={{ color: avgScore !== null ? scoreColors(avgScore).color : "var(--muted)" }} />
+              <Gauge className="h-4 w-4" style={{ color: avgScore !== null ? healthScoreTier(avgScore).color : "var(--muted)" }} />
             </div>
             <div>
               <div className="text-xl font-semibold tracking-tight tabular-nums">

@@ -7,6 +7,8 @@ import { SiAppstore, SiGoogleplay } from "react-icons/si";
 import RankSparkline from "./RankSparkline";
 import RankHistoryChart from "./RankHistoryChart";
 import KeywordsOverviewChart from "./KeywordsOverviewChart";
+import { appStoreSearchUrl, playStoreSearchUrl } from "@/lib/storeLinks";
+import type { StorePlatform } from "@/lib/stores/types";
 
 function RankDelta({ latest, previous }: { latest: number | null; previous: number | null }) {
   if (latest === null || previous === null) return null;
@@ -36,14 +38,6 @@ interface KeywordWithRanks {
   volume: number | null;
   difficulty: number | null;
   ranks: { position: number | null; checkedAt: string | Date }[];
-}
-
-function appStoreSearchUrl(term: string): string {
-  return `https://apps.apple.com/us/search?term=${encodeURIComponent(term)}`;
-}
-
-function playStoreSearchUrl(term: string): string {
-  return `https://play.google.com/store/search?q=${encodeURIComponent(term)}&c=apps`;
 }
 
 // Apple's App Store Connect "Keywords" field is a single comma-separated
@@ -86,7 +80,7 @@ export default function KeywordsSection({
   keywords,
 }: {
   appId: string;
-  platform: "IOS" | "ANDROID";
+  platform: StorePlatform;
   keywords: KeywordWithRanks[];
 }) {
   const router = useRouter();

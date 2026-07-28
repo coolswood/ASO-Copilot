@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import AppIcon from "./AppIcon";
+import type { StorePlatform } from "@/lib/stores/types";
 
 export interface SearchHit {
   storeId: string;
@@ -15,8 +16,8 @@ export default function AppSearchPicker({
   onSelect,
   allowPlatformChange = true,
 }: {
-  platform: "IOS" | "ANDROID";
-  onSelect: (hit: SearchHit, platform: "IOS" | "ANDROID") => void | Promise<void>;
+  platform: StorePlatform;
+  onSelect: (hit: SearchHit, platform: StorePlatform) => void | Promise<void>;
   allowPlatformChange?: boolean;
 }) {
   const [selectedPlatform, setSelectedPlatform] = useState(platform);
@@ -59,7 +60,7 @@ export default function AppSearchPicker({
         {allowPlatformChange && (
           <select
             value={selectedPlatform}
-            onChange={(e) => setSelectedPlatform(e.target.value as "IOS" | "ANDROID")}
+            onChange={(e) => setSelectedPlatform(e.target.value as StorePlatform)}
             className="rounded-lg border border-border bg-card px-3 py-2 text-sm transition-colors hover:border-accent"
           >
             <option value="IOS">App Store</option>
