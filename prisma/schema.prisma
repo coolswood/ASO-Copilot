@@ -1,0 +1,194 @@
+// Prisma schema for the ASO tracker
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Platform {
+  IOS
+  ANDROID
+}
+
+model App {
+  id              String   @id @default(cuid())
+  platform        Platform
+  storeId         String // bundleId (iOS) or package name (Android)
+  name            String
+  developer       String?
+  iconUrl         String?
+  url             String?
+  category        String?
+  rating          Float?
+  ratingCount     Int?
+  title           String?
+  subtitle        String?
+  description     String?
+  screenshotCount Int?
+  screenshotUrls  String[] @default([])
+  languageCount   Int?
+  version         String?
+  lastUpdated     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Per-app PostHog integration, so each tracked app can link to its own
+  // product analytics project (separate from this tool's own analytics).
+  posthogHost        String?
+  posthogProjectId   String?
+  posthogApiKey      String?
+  posthogConnectedAt DateTime?
+
+  keywords          Keyword[]
+  competitors       Competitor[]
+  healthReports     HealthReport[]
+  suggestions       KeywordSuggestion[]
+  reviews           Review[]
+  aiCopySuggestions AiCopySuggestion[]
+
+  @@unique([platform, storeId])
+}
+
+model Keyword {
+  id         String   @id @default(cuid())
+  appId      String
+  app        App      @relation(fields: [appId], references: [id], onDelete: Cascade)
+  term       String
+  volume     Int?
+  difficulty Int?
+  createdAt  DateTime @default(now())
+
+  ranks           KeywordRank[]
+  competitorRanks CompetitorRank[]
+  countryRanks    KeywordCountryRank[]
+
+  @@unique([appId, term])
+}
+
+model KeywordRank {
+  id        String   @id @default(cuid())
+  keywordId String
+  keyword   Keyword  @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+  position  Int?
+  checkedAt DateTime @default(now())
+
+  @@index([keywordId, checkedAt])
+}
+
+// One-off/on-demand "deep scan" results: the app's rank for a keyword across
+// many country storefronts, used to render the world map. Separate from
+// KeywordRank (which is the daily-tracked "us" history) since this is a
+// different cadence and dimension (country, not time).
+model KeywordCountryRank {
+  id        String   @id @default(cuid())
+  keywordId String
+  keyword   Keyword  @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+  country   String // lowercase ISO 3166-1 alpha-2, e.g. "us", "de"
+  position  Int?
+  checkedAt DateTime @default(now())
+
+  @@index([keywordId, country, checkedAt])
+}
+
+model Competitor {
+  id              String    @id @default(cuid())
+  appId           String
+  app             App       @relation(fields: [appId], references: [id], onDelete: Cascade)
+  platform        Platform
+  storeId         String
+  name            String
+  iconUrl         String?
+  rating          Float?
+  ratingCount     Int?
+  title           String?
+  subtitle        String?
+  description     String?
+  screenshotCount Int?
+  screenshotUrls  String[] @default([])
+  lastUpdated     DateTime?
+  lastSyncedAt    DateTime?
+  createdAt       DateTime  @default(now())
+
+  ranks CompetitorRank[]
+
+  @@unique([appId, platform, storeId])
+}
+
+model CompetitorRank {
+  id           String     @id @default(cuid())
+  competitorId String
+  competitor   Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  keywordId    String
+  keyword      Keyword    @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+  position     Int?
+  checkedAt    DateTime   @default(now())
+
+  @@index([competitorId, keywordId, checkedAt])
+}
+
+model HealthReport {
+  id          String   @id @default(cuid())
+  appId       String
+  app         App      @relation(fields: [appId], references: [id], onDelete: Cascade)
+  score       Int
+  breakdown   Json
+  suggestions Json
+  createdAt   DateTime @default(now())
+}
+
+model KeywordSuggestion {
+  id         String   @id @default(cuid())
+  appId      String
+  app        App      @relation(fields: [appId], references: [id], onDelete: Cascade)
+  term       String
+  volume     Int?
+  difficulty Int?
+  source     String
+  createdAt  DateTime @default(now())
+
+  @@unique([appId, term])
+}
+
+// Raw store reviews, synced periodically. `externalId` is the store's own
+// review id, used to dedupe re-syncs (createMany + skipDuplicates) instead of
+// re-fetching the full review history's rating/sentiment every time.
+model Review {
+  id         String    @id @default(cuid())
+  appId      String
+  app        App       @relation(fields: [appId], references: [id], onDelete: Cascade)
+  externalId String
+  rating     Int?
+  title      String?
+  text       String?
+  authorName String?
+  version    String?
+  country    String?
+  reviewedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@unique([appId, externalId])
+  @@index([appId, reviewedAt])
+}
+
+// Persisted AI Copy Suggestions per app+locale, so the panel can show
+// previously generated copy without an OPENROUTER_API_KEY - either the
+// OpenRouter-backed REST route saves here after generating, or an MCP
+// client with its own model (no key needed) writes here directly via the
+// save_copy_suggestions tool. `suggestions` is a CopySuggestion[] (see
+// src/lib/ai.ts): [{ field, current, suggestion, rationale }, ...].
+model AiCopySuggestion {
+  id          String   @id @default(cuid())
+  appId       String
+  app         App      @relation(fields: [appId], references: [id], onDelete: Cascade)
+  locale      String
+  suggestions Json
+  source      String // "openrouter" | "mcp"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([appId, locale])
+}

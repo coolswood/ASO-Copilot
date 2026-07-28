@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "hidden-aso": {
+      "type": "http",
+      "url": "http://localhost:3000/api/mcp"
+    }
+  }
+}

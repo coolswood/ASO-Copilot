@@ -1,26 +1,228 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #fafafa;
+  --foreground: #18181b;
+  --card: #ffffff;
+  --border: #e8e8ea;
+  --muted: #6f6f76;
+  --accent: #f97316;
+  --accent-soft: #f973161a;
+  /* Text color for content sitting directly on --accent (buttons, hover
+     fills). White on this orange is only ~2.8:1 contrast (fails WCAG AA);
+     a fixed dark tone reads ~6-8:1 in both themes since the accent chip
+     itself doesn't get darker in dark mode. Deliberately not theme-aware. */
+  --accent-foreground: #18181b;
+  --shadow-color: 220 20% 40%;
+
+  /* Semantic status colors, shared by health scores, rank/volume metrics,
+     and the world map legend so a single tone shift updates everywhere. */
+  --success: #22c55e;
+  --success-soft: #22c55e1a;
+  --warning: #eab308;
+  --warning-soft: #eab3081a;
+  --danger: #ef4444;
+  --danger-soft: #ef44441a;
+
+  /* Categorical palette for multi-series charts (e.g. all tracked keywords'
+     rank history on one chart) - fixed hue order validated for CVD-safe
+     adjacent-pair separation and contrast against this app's --card surface
+     via the dataviz skill's validator. Never reassign per filter/selection -
+     a series keeps its slot for as long as it's plotted. Capped at 8: past
+     that, more series fold into "not shown" rather than generating a 9th hue. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #4a3aa7;
+  --series-8: #e34948;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-soft: var(--accent-soft);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #0a0a0b;
+    --foreground: #f0f0f1;
+    --card: #151517;
+    --border: #26262a;
+    --muted: #93939b;
+    --accent: #fb923c;
+    --accent-soft: #fb923c22;
+
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
   }
+}
+
+* {
+  border-color: var(--border);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  line-height: 1.5;
+}
+
+/* Hides the scrollbar entirely (OS widget or otherwise) - scrolling still
+   works via wheel/trackpad/keyboard, there's just no visible track/thumb. */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  letter-spacing: -0.015em;
+}
+
+p {
+  line-height: 1.6;
+}
+
+a,
+button {
+  /* `translate`/`scale`/`rotate` listed alongside `transform`: Tailwind v4's
+     `-translate-y-*`, `scale-*`, and `rotate-*` utilities (e.g. every
+     `hover:-translate-y-px` lift button in this app) animate those as their
+     own standalone CSS properties, not via `transform` - omitting them here
+     left every such hover snapping instead of easing in. */
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease,
+    opacity 0.15s ease, transform 0.15s ease, translate 0.15s ease, scale 0.15s ease, rotate 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+/* Cards that lift on hover (transform + shadow) read as noticeably choppier
+   at the same 0.15s/ease used for simple color/opacity fades above - that
+   duration is tuned for fast state changes, not a spatial lift. This is a
+   plain (unlayered) rule so it can actually win over the `a, button` rule
+   above (both unlayered - CSS cascade layers means Tailwind's own utilities,
+   which live in @layer utilities, can never beat this regardless of the
+   `transition-*` classes applied in JSX). Same cubic-bezier already used for
+   .animate-fade-in-up, so hover motion matches the rest of the app's feel.
+
+   The shadow itself is never transitioned directly: animating `box-shadow`
+   forces the browser to repaint the (expensive, large-blur) shadow every
+   frame since it isn't compositor-accelerated, which is what made the lift
+   look janky next to the (GPU-accelerated) transform running alongside it.
+   Instead a static shadow lives on a ::after layer and only its `opacity`
+   fades in/out, so both properties animating together stay on the
+   compositor and the motion stays smooth. */
+.card-hover {
+  position: relative;
+  /* Tailwind v4's `-translate-y-*` utilities animate the standalone
+     `translate` CSS property, not `transform` - a `transition: transform`
+     list alone leaves that property untransitioned, so the hover lift snaps
+     instead of easing in (this is also why Tailwind's own built-in
+     `transition-transform` utility lists `transform, translate, scale,
+     rotate` together). */
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), translate 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.2s ease;
+  will-change: transform, translate;
+}
+
+.card-hover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+  box-shadow: 0 10px 15px -3px hsl(var(--shadow-color) / 0.15), 0 4px 6px -4px hsl(var(--shadow-color) / 0.15);
+  transition: opacity 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.card-hover:hover::after {
+  opacity: 1;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--foreground);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes gauge-fill {
+  from {
+    stroke-dashoffset: var(--circumference);
+  }
+  to {
+    stroke-dashoffset: var(--offset);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.4s ease backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in-up,
+  .animate-fade-in {
+    animation: none;
+  }
+  a,
+  button {
+    transition: none;
+  }
 }

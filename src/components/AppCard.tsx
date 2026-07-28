@@ -1,0 +1,97 @@
+import Link from "next/link";
+import { SiAppstore, SiGoogleplay } from "react-icons/si";
+import AppIcon from "./AppIcon";
+
+function scoreColor(score: number): string {
+  if (score >= 80) return "var(--success)";
+  if (score >= 60) return "var(--warning)";
+  return "var(--danger)";
+}
+
+function MiniScoreRing({ score }: { score: number }) {
+  const size = 40;
+  const strokeWidth = 4;
+  const radius = size / 2 - strokeWidth;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference * (1 - score / 100);
+  const color = scoreColor(score);
+
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={radius} stroke="var(--border)" strokeWidth={strokeWidth} fill="none" />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke={color}
+          strokeWidth={strokeWidth}
+          fill="none"
+          strokeDasharray={circumference}
+          strokeLinecap="round"
+          style={
+            {
+              "--circumference": circumference,
+              "--offset": offset,
+              animation: "gauge-fill 0.8s cubic-bezier(0.16, 1, 0.3, 1) both",
+            } as React.CSSProperties
+          }
+        />
+      </svg>
+      <div className="absolute inset-0 flex items-center justify-center text-[11px] font-bold tabular-nums">
+        {score}
+      </div>
+    </div>
+  );
+}
+
+export default function AppCard({
+  id,
+  name,
+  iconUrl,
+  platform,
+  keywordCount,
+  competitorCount,
+  healthScore,
+}: {
+  id: string;
+  name: string;
+  iconUrl: string | null;
+  platform: "IOS" | "ANDROID";
+  keywordCount: number;
+  competitorCount: number;
+  healthScore: number | null;
+}) {
+  return (
+    <Link
+      href={`/apps/${id}`}
+      className="card-hover group rounded-xl border border-border bg-card p-5 flex flex-col gap-4 hover:border-accent hover:-translate-y-1"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <AppIcon
+            src={iconUrl}
+            className="h-12 w-12 rounded-xl shrink-0 transition-transform duration-200 group-hover:scale-105"
+          />
+          <div className="min-w-0">
+            <div className="font-medium truncate">{name}</div>
+            <div className="flex items-center gap-1 text-xs text-muted">
+              {platform === "IOS" ? (
+                <SiAppstore className="h-3 w-3 shrink-0" />
+              ) : (
+                <SiGoogleplay className="h-3 w-3 shrink-0" />
+              )}
+              {platform === "IOS" ? "App Store" : "Google Play"}
+            </div>
+          </div>
+        </div>
+        {healthScore !== null && <MiniScoreRing score={healthScore} />}
+      </div>
+
+      <div className="flex gap-4 text-sm text-muted">
+        <span>{keywordCount} keywords</span>
+        <span>{competitorCount} competitors</span>
+      </div>
+    </Link>
+  );
+}
