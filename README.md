@@ -4,8 +4,8 @@ A self-hosted, free alternative to tools like rankd.dev/AppTweak/ASOMobile for d
 their own apps. Single-user, no accounts, no billing — just your apps.
 
 Also exposes an MCP server so an agent (Claude Code, Claude Desktop, etc.) can manage your ASO
-directly: add apps, track keywords, pull health reports, spy on competitors, and find keyword
-opportunities.
+directly: add apps, track keywords, pull health reports, spy on competitors, find keyword
+opportunities, and write AI copy suggestions itself with no separate API key.
 
 ## Features
 
@@ -16,6 +16,19 @@ opportunities.
   with suggestions, same shape as the paid tools
 - **Keyword research** — "find winning keywords" derives candidates from your + competitors'
   metadata and scores them by estimated demand/difficulty using live store search data
+- **Global Reach** — scans your rank for a keyword across ~40 major App Store / Google Play
+  storefronts, plotted on a world map
+- **Review analysis** — rating distribution, positive/negative theme extraction, and a keyword-gap
+  finder that mines your own reviews for untracked search terms
+- **Product health overlay** — pairs your app's real daily active users (via a per-app PostHog
+  project) against its ASO health score over the same window
+- **AI Copy Suggestions** — rewrites title/subtitle/description for 8 locales (US/UK/Canada
+  English, Spanish, German, French, Portuguese, Japanese), adapting keywords into real local
+  search terms rather than translating literally. Two ways to generate it, no lock-in to either:
+  - via [OpenRouter](https://openrouter.ai) (any backing model) through the web UI, or
+  - **key-free**, by pointing any MCP-connected model (e.g. Claude Code) at the
+    `prepare_copy_localization_brief` / `save_copy_suggestions` tools — the model composes the
+    copy itself, no API spend beyond what you're already paying for the agent
 - **MCP server** at `/api/mcp` for agent-driven ASO management
 
 ## Stack
@@ -79,9 +92,10 @@ CRON_SCHEDULE="0 6 * * *"                # optional, standard 5-field cron synta
 
 The app exposes an MCP server at `/api/mcp` (Streamable HTTP transport) with tools for listing
 apps, searching stores, adding apps/keywords/competitors, pulling health reports, finding winning
-keywords, and running a tracking pass on demand.
+keywords, generating AI copy suggestions, and running a tracking pass on demand.
 
-Point any MCP-compatible client at it, e.g. in Claude Code (`.mcp.json`):
+Point any MCP-compatible client at it, e.g. in Claude Code (`.mcp.json`, already checked in at the
+repo root pointing at localhost):
 
 ```json
 {
@@ -96,17 +110,46 @@ Point any MCP-compatible client at it, e.g. in Claude Code (`.mcp.json`):
 There's no auth on this endpoint by default — it has full read/write access to your ASO data, so
 don't expose it on the public internet without adding your own auth in front of it.
 
+## AI Copy Suggestions
+
+Two independent ways to generate rewritten title/subtitle/description copy, in
+`src/components/AICopySuggestions.tsx` on each app's Overview tab - pick either, both write to the
+same `AiCopySuggestion` table so the panel shows whichever ran most recently:
+
+- **OpenRouter** (works from the web UI): set `OPENROUTER_API_KEY` in `.env` (get one at
+  [openrouter.ai/keys](https://openrouter.ai/keys)); optionally `OPENROUTER_MODEL` to pick a
+  different model than the default. Click **Get AI suggestions**.
+- **MCP, no key needed**: have an MCP-connected model call `prepare_copy_localization_brief` (returns
+  current copy, character limits, and a localization instruction per locale - no network call, no
+  key) and write the copy itself, then `save_copy_suggestions` to persist it. Useful if you're
+  already paying for an agent and don't want a second LLM bill for this.
+
 ## Analytics (optional)
 
-Usage analytics are off by default. Set `NEXT_PUBLIC_POSTHOG_KEY` (and optionally
-`NEXT_PUBLIC_POSTHOG_HOST` if self-hosting PostHog) in `.env` to enable pageview tracking via
-`src/components/PostHogProvider.tsx` — no code changes needed, it's a no-op until the key is set.
+Two separate PostHog integrations - don't mix them up:
+
+- **This tool's own usage analytics** (are you clicking around this app, not any tracked app's
+  users) — off by default. Set `NEXT_PUBLIC_POSTHOG_KEY` (and optionally
+  `NEXT_PUBLIC_POSTHOG_HOST` if self-hosting PostHog) in `.env` to enable pageview tracking via
+  `src/components/PostHogProvider.tsx` — no code changes needed, it's a no-op until the key is set.
+- **Per-app product health** — each tracked app can link its *own* PostHog project (Settings tab,
+  `src/components/PostHogSettings.tsx`) so its real daily active users show up next to its ASO
+  health score on the Overview tab. Unrelated to the key above; configured per-app in the UI, not
+  via env vars.
 
 ## Project layout
 
 - `src/lib/stores/` — App Store (iTunes) and Google Play data fetching
 - `src/lib/health.ts` — health score engine
 - `src/lib/research.ts` — keyword candidate generation + volume/difficulty scoring
+- `src/lib/ai.ts` / `src/lib/aiLocales.ts` — AI Copy Suggestions: OpenRouter prompt + call, the
+  key-free localization-brief builder, and the 8-locale list
+- `src/lib/reviewAnalysis.ts` — rating distribution + positive/negative theme extraction
+- `src/lib/posthogIntegration.ts` — per-app PostHog client (daily active users query)
+- `src/lib/storeLinks.ts` / `src/lib/metricColor.ts` — small shared UI helpers (outbound store
+  links, volume/difficulty coloring) kept out of `research.ts` so Client Components importing them
+  don't drag in server-only store-scraping dependencies
 - `src/lib/appService.ts` — shared logic used by both the REST API and the MCP tools
 - `src/app/api/` — REST routes
 - `src/app/api/[transport]/route.ts` — MCP server
+- `docker/cron/` — optional bundled cron container for daily tracking (see "Daily tracking" above)

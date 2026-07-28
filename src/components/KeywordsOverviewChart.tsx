@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import ChartTooltipShell from "./ChartTooltipShell";
 
 interface KeywordRankSeries {
   id: string;
@@ -56,7 +57,7 @@ function CustomTooltip({
   if (rows.length === 0) return null;
 
   return (
-    <div className="max-w-[220px] rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-lg">
+    <ChartTooltipShell className="max-w-[220px]">
       <div className="mb-1.5 font-medium">{point.dateLabel}</div>
       <div className="space-y-1">
         {rows.map(({ k, value }) => (
@@ -69,7 +70,7 @@ function CustomTooltip({
           </div>
         ))}
       </div>
-    </div>
+    </ChartTooltipShell>
   );
 }
 

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import ChartTooltipShell from "./ChartTooltipShell";
 
 interface RankPoint {
   position: number | null;
@@ -28,7 +29,7 @@ function CustomTooltip({
   const point = payload[0].payload;
 
   return (
-    <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-lg">
+    <ChartTooltipShell>
       <div className="font-medium">{point.dateLabel}</div>
       <div className="mt-1.5 flex items-center justify-between gap-6">
         <span className="text-muted">Rank</span>
@@ -47,7 +48,7 @@ function CustomTooltip({
           </span>
         </div>
       )}
-    </div>
+    </ChartTooltipShell>
   );
 }
 
