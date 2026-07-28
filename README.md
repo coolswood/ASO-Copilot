@@ -7,6 +7,13 @@ Also exposes an MCP server so an agent (Claude Code, Claude Desktop, etc.) can m
 directly: add apps, track keywords, pull health reports, spy on competitors, find keyword
 opportunities, and write AI copy suggestions itself with no separate API key.
 
+
+
+https://github.com/user-attachments/assets/970ce32e-a980-42ce-a0eb-529c425439af
+
+
+
+
 ## Features
 
 - **Daily keyword rank tracking** — real ranks from live App Store / Google Play search results
