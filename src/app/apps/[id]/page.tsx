@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ChevronRight, Compass, Gauge, MessageSquare, Settings, Tags, Users } from "lucide-react";
+import { ChevronRight, Compass, Gauge, Languages, MessageSquare, Settings, Tags, Users } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import HealthReportPanel from "@/components/HealthReportPanel";
 import AICopySuggestions from "@/components/AICopySuggestions";
@@ -15,6 +15,7 @@ import ProductHealthChart from "@/components/ProductHealthChart";
 import PostHogSettings from "@/components/PostHogSettings";
 import DangerZone from "@/components/DangerZone";
 import AppTabs from "@/components/AppTabs";
+import LocalizationHealthSection from "@/components/LocalizationHealthSection";
 import type { HealthBreakdownItem, HealthSuggestion } from "@/lib/health";
 
 export default async function AppDetailPage({
@@ -176,6 +177,20 @@ export default async function AppDetailPage({
                   Reviews
                 </h2>
                 <ReviewsSection appId={app.id} />
+              </section>
+            ),
+          },
+          {
+            id: "localization",
+            label: "Localization",
+            icon: <Languages className="h-3.5 w-3.5" />,
+            content: (
+              <section>
+                <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight mb-4">
+                  <span className="h-4 w-1 rounded-full bg-accent" />
+                  Localization Health
+                </h2>
+                <LocalizationHealthSection appId={app.id} />
               </section>
             ),
           },

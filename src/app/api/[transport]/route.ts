@@ -24,10 +24,19 @@ import {
   scoreKeywordIdea,
   keywordOpportunityRank,
   discoverKeywordIdeas,
+  discoverLocaleKeywords,
 } from "@/lib/research";
-import { buildCopyLocalizationBrief, generateCopySuggestions, saveCopySuggestions, type CopySuggestion } from "@/lib/ai";
+import {
+  AIConfigError,
+  buildCopyLocalizationBrief,
+  generateCopySuggestions,
+  saveCopySuggestions,
+  type CopyLocalizationBrief,
+  type CopySuggestion,
+} from "@/lib/ai";
 import { AI_LOCALES, type AILocale } from "@/lib/aiLocales";
 import { DESCRIPTION_IDEAL_LEN, SUBTITLE_RANGE, TITLE_MAX } from "@/lib/health";
+import type { StorePlatform } from "@/lib/stores/types";
 
 const platformSchema = z.enum(["IOS", "ANDROID"]);
 
@@ -40,6 +49,56 @@ function errorResult(e: unknown) {
     content: [{ type: "text" as const, text: `Error: ${(e as Error).message}` }],
     isError: true as const,
   };
+}
+
+interface BriefableApp {
+  id: string;
+  platform: StorePlatform;
+  title: string | null;
+  subtitle: string | null;
+  description: string | null;
+  keywords: { term: string }[];
+}
+
+/** Real local-market search phrases for one locale (see
+ * discoverLocaleKeywords) - shared by both AI-copy tools below so they hand
+ * the model (whoever ends up composing the copy, OpenRouter or the calling
+ * MCP client itself) the same local-demand signal either way. */
+async function discoverKeywordsForLocale(app: BriefableApp, locale: AILocale): Promise<string[]> {
+  const isBaseEnglish = locale.code === "en" || locale.code.startsWith("en-");
+  if (isBaseEnglish) return [];
+  const localization = await prisma.appLocalization.findUnique({
+    where: { appId_locale: { appId: app.id, locale: locale.code } },
+  });
+  const seedText = [localization?.title ?? app.title, localization?.subtitle ?? app.subtitle]
+    .filter(Boolean)
+    .join(" ");
+  return discoverLocaleKeywords(app.platform, seedText, locale.country, locale.code).catch(() => []);
+}
+
+/** Builds one locale's copy-localization brief - used directly by
+ * prepare_copy_localization_brief, and by get_ai_copy_suggestions' no-key
+ * fallback below, so both tools hand the calling model the exact same input
+ * regardless of which one they called. */
+async function buildLocaleBrief(
+  app: BriefableApp,
+  locale: AILocale,
+  discoveredKeywords?: string[],
+): Promise<CopyLocalizationBrief> {
+  return buildCopyLocalizationBrief({
+    platform: app.platform,
+    title: app.title,
+    subtitle: app.subtitle,
+    description: app.description,
+    keywords: app.keywords.map((k) => k.term),
+    discoveredKeywords: discoveredKeywords ?? (await discoverKeywordsForLocale(app, locale)),
+    locale,
+    limits: {
+      title: TITLE_MAX[app.platform],
+      subtitle: SUBTITLE_RANGE[app.platform],
+      description: DESCRIPTION_IDEAL_LEN[app.platform],
+    },
+  });
 }
 
 const handler = createMcpHandler(
@@ -449,7 +508,7 @@ const handler = createMcpHandler(
       {
         title: "Get AI copy suggestions",
         description:
-          `Uses an LLM (via OpenRouter, requires OPENROUTER_API_KEY on the server) to rewrite an app's title/subtitle/description for one or more storefront locales, working its tracked keywords in naturally rather than translating them literally. English regional variants (en-gb/en-ca) keep the keywords as-is and only adapt spelling/idiom. Supported locales: ${AI_LOCALES.map((l) => l.code).join(", ")}. Omit \`locales\` to check all of them at once.`,
+          `Rewrites an app's title/subtitle/description for one or more storefront locales, working its tracked keywords and real local search phrases (pulled live from that storefront's own autocomplete) in naturally rather than translating literally. English regional variants (en-gb/en-ca) keep the keywords as-is and only adapt spelling/idiom. Supported locales: ${AI_LOCALES.map((l) => l.code).join(", ")}. Omit \`locales\` to check all of them at once.\n\nIf OPENROUTER_API_KEY is set on the server, OpenRouter writes the copy directly and the result is saved and returned immediately. If it's NOT set, this doesn't fail - each such locale instead comes back with \`needsManualComposition: true\` and a \`brief\`: compose that locale's title/subtitle/description yourself (respecting the brief's limits/instructions) in your own next response, then call save_copy_suggestions with the result to persist it and finish the job - no OPENROUTER_API_KEY or extra API spend required either way.`,
         inputSchema: {
           appId: z.string().min(1),
           locales: z
@@ -475,6 +534,7 @@ const handler = createMcpHandler(
 
         const results = await Promise.all(
           targets.map(async (locale) => {
+            const discoveredKeywords = await discoverKeywordsForLocale(app, locale);
             try {
               const suggestions = await generateCopySuggestions({
                 platform: app.platform,
@@ -482,6 +542,7 @@ const handler = createMcpHandler(
                 subtitle: app.subtitle,
                 description: app.description,
                 keywords: app.keywords.map((k) => k.term),
+                discoveredKeywords,
                 locale,
                 limits: {
                   title: TITLE_MAX[app.platform],
@@ -489,8 +550,20 @@ const handler = createMcpHandler(
                   description: DESCRIPTION_IDEAL_LEN[app.platform],
                 },
               });
+              await saveCopySuggestions(appId, locale.code, suggestions, "openrouter");
               return { locale: locale.code, label: locale.label, suggestions };
             } catch (e) {
+              if (e instanceof AIConfigError) {
+                const brief = await buildLocaleBrief(app, locale, discoveredKeywords);
+                return {
+                  locale: locale.code,
+                  label: locale.label,
+                  needsManualComposition: true as const,
+                  brief,
+                  instructions:
+                    "No OPENROUTER_API_KEY on the server. Compose title/subtitle/description yourself from `brief` (respecting its limits and localization instructions), then call save_copy_suggestions with this locale and your copy to persist it.",
+                };
+              }
               return { locale: locale.code, label: locale.label, error: (e as Error).message };
             }
           }),
@@ -528,21 +601,7 @@ const handler = createMcpHandler(
           return errorResult(new Error(`No valid locales in [${requested.join(", ")}]`));
         }
 
-        const briefs = targets.map((locale) =>
-          buildCopyLocalizationBrief({
-            platform: app.platform,
-            title: app.title,
-            subtitle: app.subtitle,
-            description: app.description,
-            keywords: app.keywords.map((k) => k.term),
-            locale,
-            limits: {
-              title: TITLE_MAX[app.platform],
-              subtitle: SUBTITLE_RANGE[app.platform],
-              description: DESCRIPTION_IDEAL_LEN[app.platform],
-            },
-          }),
-        );
+        const briefs = await Promise.all(targets.map((locale) => buildLocaleBrief(app, locale)));
         return json(briefs);
       },
     );

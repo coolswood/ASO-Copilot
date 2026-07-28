@@ -17,6 +17,12 @@ export interface CopySuggestionInput {
   subtitle: string | null;
   description: string | null;
   keywords: string[];
+  /** Real local-market search phrases pulled from that storefront's own
+   * autocomplete (see discoverLocaleKeywords in src/lib/research.ts) -
+   * distinct from `keywords`, which are the app's tracked English terms for
+   * the model to translate/adapt. These are already in the target language
+   * and reflect what people actually type there, not a translation guess. */
+  discoveredKeywords?: string[];
   locale: AILocale;
   limits: {
     title: number;
@@ -75,7 +81,11 @@ ${input.description || "(none set)"}
 Tracked keywords (English, input signals only): ${
     input.keywords.length ? input.keywords.join(", ") : "(none tracked yet)"
   }
-
+${
+    input.discoveredKeywords?.length
+      ? `\nReal ${input.locale.label} search phrases (pulled live from this storefront's own autocomplete - actual local user queries, not translations): ${input.discoveredKeywords.join(", ")}\nWork in whichever of these fit naturally and match what the app actually does - they're real local demand signal, weight them at least as heavily as the translated tracked keywords above.\n`
+      : ""
+  }
 Write the new title, subtitle, and description entirely in ${input.locale.label}, the way a native ${input.locale.label} speaker would naturally write and search for this app. ${instruction}
 
 Hard character limits - do not exceed these (character count, not byte count):
@@ -97,6 +107,7 @@ export interface CopyLocalizationBrief {
   currentSubtitle: string | null;
   currentDescription: string | null;
   trackedKeywords: string[];
+  discoveredKeywords: string[];
   limits: { title: number; subtitle: readonly [number, number]; description: number };
   instructions: string;
 }
@@ -117,8 +128,13 @@ export function buildCopyLocalizationBrief(input: CopySuggestionInput): CopyLoca
     currentSubtitle: input.subtitle,
     currentDescription: input.description,
     trackedKeywords: input.keywords,
+    discoveredKeywords: input.discoveredKeywords ?? [],
     limits: input.limits,
-    instructions: `${localizationInstruction(input.locale)} Title must be <= ${input.limits.title} characters. Subtitle should be ${input.limits.subtitle[0]}-${input.limits.subtitle[1]} characters. Description must be <= ${input.limits.description} characters. Write persuasive copy a real app would ship, not keyword-stuffed filler.`,
+    instructions: `${localizationInstruction(input.locale)} Title must be <= ${input.limits.title} characters. Subtitle should be ${input.limits.subtitle[0]}-${input.limits.subtitle[1]} characters. Description must be <= ${input.limits.description} characters. Write persuasive copy a real app would ship, not keyword-stuffed filler.${
+      input.discoveredKeywords?.length
+        ? ` "discoveredKeywords" are real search phrases pulled live from this storefront's own autocomplete (actual local user queries, not translations) - work in whichever fit naturally, weighted at least as heavily as trackedKeywords.`
+        : ""
+    }`,
   };
 }
 
@@ -209,4 +225,11 @@ export async function getSavedCopySuggestions(
   const row = await prisma.aiCopySuggestion.findUnique({ where: { appId_locale: { appId, locale } } });
   if (!row) return null;
   return { suggestions: row.suggestions as unknown as CopySuggestion[], source: row.source as CopySuggestionSource };
+}
+
+/** Clears a saved suggestion once it's been applied (pasted into the store
+ * listing) or is no longer wanted - deleteMany rather than delete so calling
+ * this twice, or on a locale that was never generated, isn't an error. */
+export async function deleteCopySuggestions(appId: string, locale: string) {
+  await prisma.aiCopySuggestion.deleteMany({ where: { appId, locale } });
 }

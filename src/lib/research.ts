@@ -97,6 +97,130 @@ export function expandCandidates(seeds: string[], maxCandidates = 12): string[] 
   return Array.from(candidates).slice(0, maxCandidates);
 }
 
+// Words too generic to seed a locale keyword search even once translated -
+// kept intentionally short (a handful of universal filler words plus the
+// brand name) rather than trying to maintain a stopword list per language,
+// since the length/distinctiveness filter below does most of the real work.
+const LOCALE_STOPWORDS = new Set(["numisma", "app", "free", "premium", "ai"]);
+
+// Adverb endings that recur across the Romance languages this tool
+// localizes into (Spanish/Portuguese/Italian "-mente", French "-ment") -
+// filtered out because they're reliably generic connective filler
+// ("automáticamente", "rapidamente", "automatiquement") that happens to be
+// long, so a pure length-based seed ranking picks them over the actual
+// product nouns nearby and autocomplete then returns junk from a totally
+// unrelated app category.
+const ADVERB_SUFFIXES = ["mente", "ment"];
+
+/** Unicode-aware version of extractSeedTerms - that one strips anything
+ * outside `[a-z0-9]`, which reduces non-Latin-script text (Cyrillic,
+ * Japanese, Arabic...) to almost nothing. This splits on whitespace and
+ * keeps any run of Unicode letters/numbers, so real translated copy (not
+ * just English) can be used to seed keyword discovery in its own locale. Not
+ * meaningful for scripts that don't space-delimit words (Japanese, Chinese)
+ * - callers should expect thin/empty results there and degrade gracefully. */
+export function extractUnicodeSeedTerms(text: string | null | undefined, max = 6): string[] {
+  if (!text) return [];
+  const words = text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter(
+      (w) => w.length >= 4 && !LOCALE_STOPWORDS.has(w) && !ADVERB_SUFFIXES.some((suf) => w.endsWith(suf)),
+    );
+
+  // Longer, more distinctive words make better autocomplete seeds than
+  // common short ones ("value" beats "the") - sort by length as a cheap
+  // proxy for specificity before deduping and capping.
+  const seen = new Set<string>();
+  const ranked = [...words].sort((a, b) => b.length - a.length);
+  const seeds: string[] = [];
+  for (const w of ranked) {
+    if (seen.has(w)) continue;
+    seen.add(w);
+    seeds.push(w);
+    if (seeds.length >= max) break;
+  }
+  return seeds;
+}
+
+/** Unicode-aware adjacent-word-pair phrases, same idea as
+ * extractKeywordPhrases but for translated (non-Latin-safe) copy. A single
+ * generic word ("scanner", "identifica", "archivia") autocompletes against
+ * whatever app category is most popular for that word in general (QR
+ * scanners, plant identifiers...), not coins specifically - pairing it with
+ * its neighbor from the actual title/subtitle anchors the seed back onto
+ * this product's own domain ("collezione monete" instead of "collezione"),
+ * which is what actually produces on-topic autocomplete results. */
+function extractUnicodeKeywordPhrases(text: string | null | undefined, max = 6): string[] {
+  if (!text) return [];
+  const words = text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter(
+      (w) => w.length >= 3 && !LOCALE_STOPWORDS.has(w) && !ADVERB_SUFFIXES.some((suf) => w.endsWith(suf)),
+    );
+
+  const seenPair = new Set<string>();
+  const phrases: string[] = [];
+  for (let i = 0; i < words.length - 1 && phrases.length < max; i++) {
+    if (words[i] === words[i + 1]) continue;
+    const pairKey = [words[i], words[i + 1]].sort().join(" ");
+    if (seenPair.has(pairKey)) continue;
+    seenPair.add(pairKey);
+    phrases.push(`${words[i]} ${words[i + 1]}`);
+  }
+  return phrases;
+}
+
+const LOCALE_KEYWORD_PHRASE_SEED_LIMIT = 4;
+const LOCALE_KEYWORD_WORD_SEED_LIMIT = 2;
+const LOCALE_KEYWORD_RESULT_LIMIT = 12;
+
+/** Real local-market search phrases for one storefront locale, discovered
+ * from Play/App Store autocomplete rather than translated by a model.
+ * Autocomplete barely translates a seed at all (querying "coin" against the
+ * German store mostly just extends "coin..." in English) - so this only
+ * produces useful results when seeded with words already in the target
+ * language, which is why `seedText` should be that locale's own translated
+ * title/subtitle/description (e.g. from a synced AppLocalization row), not
+ * the English source copy. Best-effort: any locale/script this can't seed
+ * or whose autocomplete errors out just yields an empty list, not a thrown
+ * error, since this only ever feeds "nice to have" copy suggestions. */
+export async function discoverLocaleKeywords(
+  platform: StorePlatform,
+  seedText: string,
+  country: string,
+  lang: string,
+): Promise<string[]> {
+  // Phrases first (better hit rate - see extractUnicodeKeywordPhrases),
+  // topped up with a couple of single distinctive words in case the text is
+  // too short to yield enough pairs.
+  const phraseSeeds = extractUnicodeKeywordPhrases(seedText, LOCALE_KEYWORD_PHRASE_SEED_LIMIT);
+  const wordSeeds = extractUnicodeSeedTerms(seedText, LOCALE_KEYWORD_WORD_SEED_LIMIT).filter(
+    (w) => !phraseSeeds.some((p) => p.includes(w)),
+  );
+  const seeds = [...phraseSeeds, ...wordSeeds];
+  if (seeds.length === 0) return [];
+
+  const lists = await Promise.all(
+    seeds.map((seed) => stores.autocompleteSuggestions(platform, seed, country, lang).catch(() => [])),
+  );
+
+  const seedSet = new Set(seeds);
+  const seen = new Set<string>();
+  const results: string[] = [];
+  for (const phrase of lists.flat()) {
+    const normalized = phrase.trim().toLowerCase();
+    if (!normalized || seen.has(normalized) || seedSet.has(normalized)) continue;
+    seen.add(normalized);
+    results.push(phrase.trim());
+    if (results.length >= LOCALE_KEYWORD_RESULT_LIMIT) break;
+  }
+  return results;
+}
+
 export interface KeywordScore {
   term: string;
   volume: number;

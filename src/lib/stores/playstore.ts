@@ -51,6 +51,35 @@ function toListing(r: {
   };
 }
 
+export interface LocalizedListing {
+  title: string | null;
+  subtitle: string | null;
+  description: string | null;
+}
+
+/** Fetches the live listing copy for one storefront locale - used by the
+ * localization audit to catch fields that Play Console still serves in
+ * English (or, worse, with leaked AI-generation artifacts) despite the
+ * locale showing up as "translated" in the language list. Returns null on
+ * any fetch error rather than throwing, since a sync pass walks ~15-20
+ * locales and one bad one shouldn't abort the rest. */
+export async function fetchLocalizedListing(
+  storeId: string,
+  lang: string,
+  country: string,
+): Promise<LocalizedListing | null> {
+  try {
+    const app = await withRetry(() => gplay.app({ appId: storeId, lang, country }));
+    return {
+      title: decodeEntities(app.title) ?? null,
+      subtitle: decodeEntities(app.summary) ?? null,
+      description: decodeEntities(app.description) ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function lookupByAppId(
   appId: string,
   country = "us",
@@ -119,9 +148,10 @@ export async function fetchReviews(appId: string, country = "us", num = 100): Pr
 export async function autocompleteSuggestions(
   term: string,
   country = "us",
+  lang?: string,
 ): Promise<string[]> {
   try {
-    return await withRetry(() => gplay.suggest({ term, country }));
+    return await withRetry(() => gplay.suggest({ term, country, ...(lang ? { lang } : {}) }));
   } catch {
     return [];
   }

@@ -50,10 +50,14 @@ export async function autocompleteSuggestions(
   platform: StorePlatform,
   term: string,
   country = "us",
+  lang?: string,
 ): Promise<string[]> {
+  // The App Store's autocomplete hints endpoint has no separate `lang` param
+  // (country already implies the storefront's language), so it's ignored on
+  // the iOS path.
   return platform === "IOS"
     ? appstore.autocompleteSuggestions(term, country)
-    : playstore.autocompleteSuggestions(term, country);
+    : playstore.autocompleteSuggestions(term, country, lang);
 }
 
 export async function fetchReviews(

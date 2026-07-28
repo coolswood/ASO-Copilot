@@ -49,8 +49,39 @@ model App {
   suggestions       KeywordSuggestion[]
   reviews           Review[]
   aiCopySuggestions AiCopySuggestion[]
+  localizations     AppLocalization[]
 
   @@unique([platform, storeId])
+}
+
+// One row per storefront locale, refreshed by re-fetching the live listing
+// with that locale's `lang` (and a matching `country`) rather than trusting
+// the single base App.title/subtitle/description. Two apps can look
+// identically "localized" from the base row alone while one of them has a
+// stale/never-translated title in half its markets - this is what lets the
+// health report catch that per locale instead of only for the default (en)
+// listing.
+model AppLocalization {
+  id             String   @id @default(cuid())
+  appId          String
+  app            App      @relation(fields: [appId], references: [id], onDelete: Cascade)
+  locale         String
+  title          String?
+  subtitle       String?
+  description    String?
+  // True once we can prove translated copy actually exists for this locale
+  // (title/subtitle/description differ from the base English listing) -
+  // false means the storefront is silently serving the English fallback for
+  // that field, which reads as "localized" in Play Console's language list
+  // but isn't.
+  titleLocalized Boolean  @default(false)
+  score          Int
+  breakdown      Json
+  issues         Json // ContentIssue[] - see src/lib/localizationAudit.ts
+  lastSyncedAt   DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  @@unique([appId, locale])
 }
 
 model Keyword {

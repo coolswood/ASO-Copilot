@@ -57,7 +57,7 @@ export const SUBTITLE_RANGE = { IOS: [20, 30], ANDROID: [50, 80] } as const;
 const IDEAL_SCREENSHOTS = { IOS: 8, ANDROID: 6 } as const;
 export const DESCRIPTION_IDEAL_LEN = { IOS: 1500, ANDROID: 1500 } as const;
 
-function scoreTitle(platform: StorePlatform, title: string | null): HealthBreakdownItem {
+export function scoreTitle(platform: StorePlatform, title: string | null): HealthBreakdownItem {
   const max = 20;
   const len = title?.trim().length ?? 0;
   const cap = TITLE_MAX[platform];
@@ -79,7 +79,7 @@ function scoreTitle(platform: StorePlatform, title: string | null): HealthBreakd
   return { key: "title", label: "Title", score, max, message };
 }
 
-function scoreSubtitle(
+export function scoreSubtitle(
   platform: StorePlatform,
   subtitle: string | null,
 ): HealthBreakdownItem {
@@ -125,7 +125,7 @@ function scoreScreenshots(
   return { key: "screenshots", label: "Screenshots", score, max, message };
 }
 
-function scoreDescription(
+export function scoreDescription(
   platform: StorePlatform,
   description: string | null,
 ): HealthBreakdownItem {

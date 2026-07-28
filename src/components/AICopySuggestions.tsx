@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Copy, Sparkles, WandSparkles } from "lucide-react";
+import { Check, Copy, Sparkles, Trash2, WandSparkles } from "lucide-react";
 import { AI_LOCALES } from "@/lib/aiLocales";
 
 interface CopySuggestion {
@@ -66,12 +66,16 @@ function LocaleResults({
   source,
   error,
   pending,
+  discovered,
+  onDismiss,
 }: {
   label: string;
   suggestions: CopySuggestion[] | null;
   source: CopySuggestionSource | null;
   error: string | null;
   pending: boolean;
+  discovered: string[] | undefined;
+  onDismiss: () => void;
 }) {
   return (
     <div className="animate-fade-in-up space-y-3">
@@ -82,7 +86,27 @@ function LocaleResults({
             {SOURCE_LABELS[source]}
           </span>
         )}
+        {!pending && suggestions && (
+          <button
+            onClick={onDismiss}
+            title="Dismiss - remove this saved suggestion once you've applied it"
+            className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-normal text-muted hover:text-foreground hover:bg-border/50"
+          >
+            <Trash2 className="h-3 w-3" />
+            Dismiss
+          </button>
+        )}
       </h3>
+      {!pending && discovered && discovered.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="text-muted">Real local search phrases used:</span>
+          {discovered.map((phrase) => (
+            <span key={phrase} className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted">
+              {phrase}
+            </span>
+          ))}
+        </div>
+      )}
       {error && <div className="text-sm text-red-500">{error}</div>}
       {pending && (
         <div className="grid gap-3 sm:grid-cols-3">
@@ -121,6 +145,7 @@ export default function AICopySuggestions({ appId }: { appId: string }) {
   const [byLocale, setByLocale] = useState<Record<string, CopySuggestion[]>>({});
   const [sourceByLocale, setSourceByLocale] = useState<Record<string, CopySuggestionSource>>({});
   const [errorByLocale, setErrorByLocale] = useState<Record<string, string>>({});
+  const [discoveredByLocale, setDiscoveredByLocale] = useState<Record<string, string[]>>({});
   const [notConfigured, setNotConfigured] = useState(false);
 
   // Loads whatever's already saved (written by a prior OpenRouter run or by
@@ -185,6 +210,9 @@ export default function AICopySuggestions({ appId }: { appId: string }) {
           if (!res.ok) throw new Error(data.error ?? "Failed to generate suggestions");
           setByLocale((prev) => ({ ...prev, [l.code]: data.suggestions }));
           setSourceByLocale((prev) => ({ ...prev, [l.code]: "openrouter" }));
+          if (data.discoveredKeywords?.length) {
+            setDiscoveredByLocale((prev) => ({ ...prev, [l.code]: data.discoveredKeywords }));
+          }
         } catch (e) {
           setErrorByLocale((prev) => ({ ...prev, [l.code]: (e as Error).message }));
         } finally {
@@ -196,6 +224,30 @@ export default function AICopySuggestions({ appId }: { appId: string }) {
         }
       }),
     );
+  }
+
+  async function dismiss(code: string) {
+    setByLocale((prev) => {
+      const next = { ...prev };
+      delete next[code];
+      return next;
+    });
+    setSourceByLocale((prev) => {
+      const next = { ...prev };
+      delete next[code];
+      return next;
+    });
+    setDiscoveredByLocale((prev) => {
+      const next = { ...prev };
+      delete next[code];
+      return next;
+    });
+    try {
+      await fetch(`/api/apps/${appId}/ai-suggestions?locale=${code}`, { method: "DELETE" });
+    } catch {
+      // best-effort - the row is already cleared from the UI; a failed
+      // delete just means it'll reappear next reload, not a broken state
+    }
   }
 
   const generating = pending.size > 0;
@@ -269,6 +321,8 @@ export default function AICopySuggestions({ appId }: { appId: string }) {
           source={sourceByLocale[l.code] ?? null}
           error={errorByLocale[l.code] ?? null}
           pending={pending.has(l.code)}
+          discovered={discoveredByLocale[l.code]}
+          onDismiss={() => dismiss(l.code)}
         />
       ))}
     </div>
