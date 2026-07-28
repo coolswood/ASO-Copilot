@@ -149,6 +149,9 @@ same `AiCopySuggestion` table so the panel shows whichever ran most recently:
 
 Two separate PostHog integrations - don't mix them up:
 
+<img width="1558" height="521" alt="image" src="https://github.com/user-attachments/assets/04985484-c04c-4e2d-95c4-65c56c2f9e1c" />
+
+
 - **This tool's own usage analytics** (are you clicking around this app, not any tracked app's
   users) — off by default. Set `NEXT_PUBLIC_POSTHOG_KEY` (and optionally
   `NEXT_PUBLIC_POSTHOG_HOST` if self-hosting PostHog) in `.env` to enable pageview tracking via
