@@ -33,6 +33,7 @@ model App {
   languageCount   Int?
   version         String?
   lastUpdated     DateTime?
+  pinned          Boolean  @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

@@ -6,7 +6,7 @@ import { healthScoreTier } from "@/lib/health";
 
 export default async function Home() {
   const apps = await prisma.app.findMany({
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ pinned: "desc" }, { createdAt: "desc" }],
     include: {
       _count: { select: { keywords: true, competitors: true } },
       healthReports: { orderBy: { createdAt: "desc" }, take: 1 },
@@ -97,6 +97,7 @@ export default async function Home() {
                 keywordCount={app._count.keywords}
                 competitorCount={app._count.competitors}
                 healthScore={app.healthReports[0]?.score ?? null}
+                pinned={app.pinned}
               />
             </div>
           ))}

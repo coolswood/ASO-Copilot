@@ -5,7 +5,7 @@ import type { StorePlatform } from "@/lib/stores/types";
 
 export async function GET() {
   const apps = await prisma.app.findMany({
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ pinned: "desc" }, { createdAt: "desc" }],
     include: {
       _count: { select: { keywords: true, competitors: true } },
       healthReports: { orderBy: { createdAt: "desc" }, take: 1 },

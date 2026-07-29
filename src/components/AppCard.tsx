@@ -1,4 +1,9 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Pin } from "lucide-react";
 import { SiAppstore, SiGoogleplay } from "react-icons/si";
 import AppIcon from "./AppIcon";
 import { healthScoreTier } from "@/lib/health";
@@ -49,6 +54,7 @@ export default function AppCard({
   keywordCount,
   competitorCount,
   healthScore,
+  pinned,
 }: {
   id: string;
   name: string;
@@ -57,12 +63,55 @@ export default function AppCard({
   keywordCount: number;
   competitorCount: number;
   healthScore: number | null;
+  pinned: boolean;
 }) {
+  const router = useRouter();
+  const [isPinned, setIsPinned] = useState(pinned);
+  const [toggling, setToggling] = useState(false);
+
+  async function togglePin(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (toggling) return;
+    setToggling(true);
+    const next = !isPinned;
+    setIsPinned(next);
+    try {
+      const res = await fetch(`/api/apps/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned: next }),
+      });
+      if (!res.ok) throw new Error("Failed to update pin");
+      router.refresh();
+    } catch {
+      setIsPinned(!next);
+    } finally {
+      setToggling(false);
+    }
+  }
+
   return (
     <Link
       href={`/apps/${id}`}
-      className="card-hover group rounded-xl border border-border bg-card p-5 flex flex-col gap-4 hover:border-accent hover:-translate-y-1"
+      className="card-hover group relative rounded-xl border border-border bg-card p-5 flex flex-col gap-4 hover:border-accent hover:-translate-y-1"
     >
+      <button
+        type="button"
+        onClick={togglePin}
+        disabled={toggling}
+        aria-pressed={isPinned}
+        title={isPinned ? "Unpin app" : "Pin app to top"}
+        className="absolute right-3 top-3 rounded-lg p-1.5 text-muted opacity-0 transition-opacity hover:bg-border/50 hover:text-foreground group-hover:opacity-100 disabled:opacity-50 data-[pinned=true]:opacity-100"
+        data-pinned={isPinned}
+      >
+        <Pin
+          className={`h-4 w-4 ${isPinned ? "rotate-0" : "-rotate-45"}`}
+          style={isPinned ? { color: "var(--accent)" } : undefined}
+          fill={isPinned ? "var(--accent)" : "none"}
+        />
+      </button>
+
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <AppIcon
