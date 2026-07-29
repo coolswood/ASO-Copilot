@@ -4,14 +4,14 @@ import { useEffect, useState } from "react";
 import { Check, Copy, Sparkles, Trash2, WandSparkles } from "lucide-react";
 import { AI_LOCALES } from "@/lib/aiLocales";
 
-interface CopySuggestion {
+export interface CopySuggestion {
   field: "title" | "subtitle" | "description";
   current: string;
   suggestion: string;
   rationale: string;
 }
 
-type CopySuggestionSource = "openrouter" | "mcp";
+export type CopySuggestionSource = "openrouter" | "mcp";
 
 const FIELD_LABELS: Record<CopySuggestion["field"], string> = {
   title: "Title",
@@ -19,12 +19,12 @@ const FIELD_LABELS: Record<CopySuggestion["field"], string> = {
   description: "Description",
 };
 
-const SOURCE_LABELS: Record<CopySuggestionSource, string> = {
+export const SOURCE_LABELS: Record<CopySuggestionSource, string> = {
   openrouter: "via OpenRouter",
   mcp: "via MCP",
 };
 
-function SuggestionCard({ s }: { s: CopySuggestion }) {
+export function SuggestionCard({ s }: { s: CopySuggestion }) {
   const [copied, setCopied] = useState(false);
   const changed = s.suggestion.trim() !== s.current.trim();
 

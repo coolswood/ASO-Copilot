@@ -1,18 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, Languages, RefreshCw, ShieldAlert } from "lucide-react";
+import { Languages, RefreshCw } from "lucide-react";
 import HealthGauge from "./HealthGauge";
 import { healthScoreTier } from "@/lib/health";
+import { IssueBadge, LOCALE_LABELS, type LocaleIssue } from "./localeShared";
+import LocaleSuggestionModal from "./LocaleSuggestionModal";
 
-interface LocaleIssue {
-  type: "title_not_localized" | "foreign_script" | "meta_leak" | "citation_artifact";
-  field: "title" | "subtitle" | "description";
-  message: string;
-  snippet?: string;
-}
-
-interface LocalizationRow {
+export interface LocalizationRow {
   locale: string;
   title: string | null;
   subtitle: string | null;
@@ -23,59 +18,14 @@ interface LocalizationRow {
   lastSyncedAt: string;
 }
 
-// Mirrors src/lib/localeCandidates.ts labels - duplicated here (client
-// component) rather than importing, since that module also pulls in
-// server-only fetch/scoring code we don't want in the client bundle.
-const LOCALE_LABELS: Record<string, string> = {
-  en: "English (US)",
-  es: "Spanish",
-  de: "German",
-  fr: "French",
-  pt: "Portuguese (Brazil)",
-  it: "Italian",
-  nl: "Dutch",
-  pl: "Polish",
-  sv: "Swedish",
-  tr: "Turkish",
-  id: "Indonesian",
-  vi: "Vietnamese",
-  ru: "Russian",
-  ja: "Japanese",
-  ko: "Korean",
-  "zh-CN": "Chinese (Simplified)",
-  ar: "Arabic",
-  hi: "Hindi",
-  th: "Thai",
-};
-
-const ISSUE_LABELS: Record<LocaleIssue["type"], string> = {
-  title_not_localized: "Title not translated",
-  foreign_script: "Leaked foreign-script text",
-  meta_leak: "Leftover AI-generation note",
-  citation_artifact: "Stray citation artifact",
-};
-
-function IssueBadge({ issue }: { issue: LocaleIssue }) {
-  const Icon = issue.type === "title_not_localized" ? AlertTriangle : ShieldAlert;
-  return (
-    <div
-      className="flex items-start gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs"
-      style={{ background: "var(--danger-soft)", color: "var(--danger)" }}
-      title={issue.snippet ?? issue.message}
-    >
-      <Icon className="h-3 w-3 shrink-0 mt-0.5" />
-      <span>
-        {ISSUE_LABELS[issue.type]}
-        <span className="opacity-70"> · {issue.field}</span>
-      </span>
-    </div>
-  );
-}
-
-function LocaleCard({ row }: { row: LocalizationRow }) {
+function LocaleCard({ row, onOpen }: { row: LocalizationRow; onOpen: () => void }) {
   const { label: tierLabel } = healthScoreTier(row.score);
   return (
-    <div className="animate-fade-in-up rounded-xl border border-border bg-card p-4 flex flex-col items-center gap-3">
+    <button
+      type="button"
+      onClick={onOpen}
+      className="animate-fade-in-up rounded-xl border border-border bg-card p-4 flex flex-col items-center gap-3 text-left transition-shadow hover:shadow-md hover:border-accent/50 cursor-pointer"
+    >
       <div className="text-center">
         <div className="text-sm font-medium">{LOCALE_LABELS[row.locale] ?? row.locale}</div>
         <div className="text-xs text-muted">{row.locale}</div>
@@ -93,7 +43,8 @@ function LocaleCard({ row }: { row: LocalizationRow }) {
         </div>
       )}
       <div className="text-[11px] text-muted">{tierLabel}</div>
-    </div>
+      <div className="text-[11px] text-accent">View & fix →</div>
+    </button>
   );
 }
 
@@ -101,6 +52,7 @@ export default function LocalizationHealthSection({ appId }: { appId: string }) 
   const [rows, setRows] = useState<LocalizationRow[] | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [openLocale, setOpenLocale] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`/api/apps/${appId}/localizations`)
@@ -169,11 +121,19 @@ export default function LocalizationHealthSection({ appId }: { appId: string }) 
           )}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {sorted.map((row) => (
-              <LocaleCard key={row.locale} row={row} />
+              <LocaleCard key={row.locale} row={row} onOpen={() => setOpenLocale(row.locale)} />
             ))}
           </div>
         </>
       )}
+
+      {openLocale &&
+        (() => {
+          const row = rows?.find((r) => r.locale === openLocale);
+          return row ? (
+            <LocaleSuggestionModal appId={appId} row={row} onClose={() => setOpenLocale(null)} />
+          ) : null;
+        })()}
     </div>
   );
 }
