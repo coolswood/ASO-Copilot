@@ -1,8 +1,5 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
+import { Link, useNavigate } from "react-router";
 import { Check, Loader2 } from "lucide-react";
 import AppIcon from "./AppIcon";
 import type { SearchHit } from "./AppSearchPicker";
@@ -34,7 +31,7 @@ function StepStatus({ status }: { status: "pending" | "active" | "done" }) {
 }
 
 export default function AddAppProgress({ hit, platform }: { hit: SearchHit; platform: StorePlatform }) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [stageIdx, setStageIdx] = useState(0);
   const [subtitle, setSubtitle] = useState<string | null>(null);
   const [keywords, setKeywords] = useState<{ term: string; rank: number | null }[]>([]);
@@ -106,10 +103,10 @@ export default function AddAppProgress({ hit, platform }: { hit: SearchHit; plat
 
   useEffect(() => {
     if (finished && appId) {
-      const t = setTimeout(() => router.push(`/apps/${appId}`), 900);
+      const t = setTimeout(() => navigate(`/apps/${appId}`), 900);
       return () => clearTimeout(t);
     }
-  }, [finished, appId, router]);
+  }, [finished, appId, navigate]);
 
   function statusFor(idx: number): "pending" | "active" | "done" {
     if (idx < stageIdx || finished) return "done";
@@ -199,7 +196,7 @@ export default function AddAppProgress({ hit, platform }: { hit: SearchHit; plat
           <span className="text-sm font-medium" style={{ color: "var(--success)" }}>
             All done! Taking you to your dashboard...
           </span>
-          <Link href={`/apps/${appId}`} className="text-sm font-medium text-accent hover:underline">
+          <Link to={`/apps/${appId}`} className="text-sm font-medium text-accent hover:underline">
             View now →
           </Link>
         </div>

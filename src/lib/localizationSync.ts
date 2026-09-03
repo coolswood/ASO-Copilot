@@ -1,4 +1,6 @@
-import { prisma } from "@/lib/prisma";
+import { and, eq, notInArray } from "drizzle-orm";
+import { db } from "@/db";
+import { appLocalizations, apps } from "@/db/schema";
 import { fetchLocalizedListing } from "@/lib/stores/playstore";
 import { computeLocaleHealthReport } from "@/lib/localizationAudit";
 import { LOCALE_CANDIDATES } from "@/lib/localeCandidates";
@@ -38,7 +40,13 @@ export interface LocalizationSyncResult {
  * rock-bottom score) since Play just silently serves the default listing
  * for storefronts that were never localized. */
 export async function syncLocalizations(appId: string): Promise<LocalizationSyncResult[]> {
-  const app = await prisma.app.findUniqueOrThrow({ where: { id: appId } });
+  // posthogApiKey is never selected (columns below) - keep it out of anything
+  // that could end up in a response.
+  const app = await db.query.apps.findFirst({
+    where: eq(apps.id, appId),
+    columns: { platform: true, storeId: true, title: true },
+  });
+  if (!app) throw new Error(`App ${appId} not found`);
   if (app.platform !== "ANDROID") {
     throw new Error("Per-locale localization sync is only supported for Android apps right now");
   }
@@ -122,9 +130,9 @@ export async function syncLocalizations(appId: string): Promise<LocalizationSync
 
     const report = computeLocaleHealthReport(app.platform, candidate.code, listing, titleLocalized);
 
-    await prisma.appLocalization.upsert({
-      where: { appId_locale: { appId, locale: candidate.code } },
-      create: {
+    await db
+      .insert(appLocalizations)
+      .values({
         appId,
         locale: candidate.code,
         title: listing.title,
@@ -134,18 +142,20 @@ export async function syncLocalizations(appId: string): Promise<LocalizationSync
         score: report.score,
         breakdown: report.breakdown as unknown as object,
         issues: report.issues as unknown as object,
-      },
-      update: {
-        title: listing.title,
-        subtitle: listing.subtitle,
-        description: listing.description,
-        titleLocalized: report.titleLocalized,
-        score: report.score,
-        breakdown: report.breakdown as unknown as object,
-        issues: report.issues as unknown as object,
-        lastSyncedAt: new Date(),
-      },
-    });
+      })
+      .onConflictDoUpdate({
+        target: [appLocalizations.appId, appLocalizations.locale],
+        set: {
+          title: listing.title,
+          subtitle: listing.subtitle,
+          description: listing.description,
+          titleLocalized: report.titleLocalized,
+          score: report.score,
+          breakdown: report.breakdown as unknown as object,
+          issues: report.issues as unknown as object,
+          lastSyncedAt: new Date(),
+        },
+      });
 
     summaries.push({
       locale: candidate.code,
@@ -161,9 +171,14 @@ export async function syncLocalizations(appId: string): Promise<LocalizationSync
   // translation (e.g. a listing that got reverted to the English default
   // since the last sync).
   const liveLocales = summaries.filter((s) => s.found).map((s) => s.locale);
-  await prisma.appLocalization.deleteMany({
-    where: { appId, locale: { notIn: liveLocales.length ? liveLocales : ["__none__"] } },
-  });
+  await db
+    .delete(appLocalizations)
+    .where(
+      and(
+        eq(appLocalizations.appId, appId),
+        notInArray(appLocalizations.locale, liveLocales.length ? liveLocales : ["__none__"]),
+      ),
+    );
 
   return summaries;
 }

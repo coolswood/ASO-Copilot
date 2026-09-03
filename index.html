@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en" class="h-full antialiased">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Self-hosted ASO tracking for your own apps: keyword ranks, competitor spy, health scoring, and keyword research."
+    />
+    <title>ASO Copilot</title>
+    <!-- next/font provided these on <html>; globals.css maps them into the
+         Tailwind theme via @theme inline (--font-sans / --font-mono). -->
+    <style>
+      :root {
+        --font-geist-sans: "Geist Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        --font-geist-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+    </style>
+  </head>
+  <body class="min-h-full flex flex-col">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

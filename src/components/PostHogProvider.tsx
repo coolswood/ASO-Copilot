@@ -1,12 +1,10 @@
-"use client";
-
 import { useEffect } from "react";
 import posthog from "posthog-js";
 
-const KEY = process.env.NEXT_PUBLIC_POSTHOG_KEY;
-const HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com";
+const KEY = import.meta.env.VITE_POSTHOG_KEY as string | undefined;
+const HOST = (import.meta.env.VITE_POSTHOG_HOST as string | undefined) ?? "https://us.i.posthog.com";
 
-/** No-op unless NEXT_PUBLIC_POSTHOG_KEY is set — this is a self-hosted,
+/** No-op unless VITE_POSTHOG_KEY is set — this is a self-hosted,
  * single-user tool, so analytics are opt-in, not on by default. Set the key
  * in .env when you want usage analytics for this instance. */
 export default function PostHogProvider({ children }: { children: React.ReactNode }) {

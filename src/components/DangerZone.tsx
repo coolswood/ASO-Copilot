@@ -1,11 +1,9 @@
-"use client";
-
-import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useNavigate } from "react-router";
 import { Trash2 } from "lucide-react";
 
 export default function DangerZone({ appId, name }: { appId: string; name: string }) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [deleting, setDeleting] = useState(false);
 
   async function remove() {
@@ -13,8 +11,9 @@ export default function DangerZone({ appId, name }: { appId: string; name: strin
     setDeleting(true);
     try {
       await fetch(`/api/apps/${appId}`, { method: "DELETE" });
-      router.push("/");
-      router.refresh();
+      // Navigating home remounts the dashboard, which fetches a fresh list —
+      // covering the old router.refresh() after router.push("/").
+      navigate("/");
     } finally {
       setDeleting(false);
     }

@@ -1,5 +1,15 @@
-import { after } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { and, asc, desc, eq, gte, lt } from "drizzle-orm";
+import { db } from "@/db";
+import {
+  apps,
+  competitors,
+  competitorRanks,
+  healthReports,
+  keywords,
+  keywordCountryRanks,
+  keywordRanks,
+  reviews,
+} from "@/db/schema";
 import * as stores from "@/lib/stores";
 import type { StorePlatform, StoreListing } from "@/lib/stores/types";
 import { computeHealthReport } from "@/lib/health";
@@ -7,9 +17,64 @@ import { extractSeedTerms, scoreKeywordIdea } from "@/lib/research";
 import { computeReviewAnalysis, GENERIC_SENTIMENT_WORDS, type ReviewAnalysis } from "@/lib/reviewAnalysis";
 import { fetchDailyActiveUsers } from "@/lib/posthogIntegration";
 import { SCAN_COUNTRIES } from "@/lib/countries";
-import type { App, Competitor } from "@/generated/prisma/client";
 
 const DEFAULT_COUNTRY = "us";
+
+type App = Omit<typeof apps.$inferSelect, "posthogApiKey">;
+type Keyword = typeof keywords.$inferSelect;
+type Competitor = typeof competitors.$inferSelect;
+
+// posthogApiKey is a secret credential - it is never selected (see APP_COLUMNS
+// / findApp below) so it can never leak through a spread `...app` response
+// (REST or MCP). The one place that needs it (verifying/using the PostHog
+// connection, getProductHealthTrend) selects it explicitly.
+const APP_COLUMNS = {
+  id: apps.id,
+  platform: apps.platform,
+  storeId: apps.storeId,
+  name: apps.name,
+  developer: apps.developer,
+  iconUrl: apps.iconUrl,
+  url: apps.url,
+  category: apps.category,
+  rating: apps.rating,
+  ratingCount: apps.ratingCount,
+  title: apps.title,
+  subtitle: apps.subtitle,
+  description: apps.description,
+  screenshotCount: apps.screenshotCount,
+  screenshotUrls: apps.screenshotUrls,
+  languageCount: apps.languageCount,
+  version: apps.version,
+  lastUpdated: apps.lastUpdated,
+  pinned: apps.pinned,
+  createdAt: apps.createdAt,
+  updatedAt: apps.updatedAt,
+  posthogHost: apps.posthogHost,
+  posthogProjectId: apps.posthogProjectId,
+  posthogConnectedAt: apps.posthogConnectedAt,
+} as const;
+
+/** Fire-and-forget stand-in for the old Next.js after() helper: the awaited
+ * work runs only once the caller resolves, without ever surfacing a rejection. */
+const after = (p: Promise<unknown>) => {
+  void p.catch(() => {});
+};
+
+async function findApp(id: string): Promise<App> {
+  const app = await db.query.apps.findFirst({
+    where: eq(apps.id, id),
+    columns: { posthogApiKey: false },
+  });
+  if (!app) throw new Error(`App ${id} not found`);
+  return app;
+}
+
+async function findKeyword(id: string): Promise<Keyword> {
+  const keyword = await db.query.keywords.findFirst({ where: eq(keywords.id, id) });
+  if (!keyword) throw new Error(`Keyword ${id} not found`);
+  return keyword;
+}
 
 function appCreateData(platform: StorePlatform, listing: StoreListing) {
   return {
@@ -37,7 +102,7 @@ export async function createApp(platform: StorePlatform, storeId: string, countr
   const listing = await stores.getListing(platform, storeId, country);
   if (!listing) throw new Error("App not found on the store");
 
-  const app = await prisma.app.create({ data: appCreateData(platform, listing) });
+  const [app] = await db.insert(apps).values(appCreateData(platform, listing)).returning(APP_COLUMNS);
 
   await autoDetectKeywords(app.id, country);
   return app;
@@ -77,7 +142,7 @@ export async function* createAppWithProgress(
     category: listing.category,
   };
 
-  const app = await prisma.app.create({ data: appCreateData(platform, listing) });
+  const [app] = await db.insert(apps).values(appCreateData(platform, listing)).returning(APP_COLUMNS);
   yield { stage: "app_created", appId: app.id };
 
   for await (const { keyword, rank } of autoDetectKeywordsGen(app.id, country)) {
@@ -95,13 +160,13 @@ export async function* createAppWithProgress(
 }
 
 export async function syncAppMetadata(appId: string, country = DEFAULT_COUNTRY) {
-  const app = await prisma.app.findUniqueOrThrow({ where: { id: appId } });
+  const app = await findApp(appId);
   const listing = await stores.getListing(app.platform, app.storeId, country);
   if (!listing) return app;
 
-  const updated = await prisma.app.update({
-    where: { id: appId },
-    data: {
+  const [updated] = await db
+    .update(apps)
+    .set({
       name: listing.name,
       developer: listing.developer,
       iconUrl: listing.iconUrl,
@@ -117,17 +182,21 @@ export async function syncAppMetadata(appId: string, country = DEFAULT_COUNTRY) 
       languageCount: listing.languageCount,
       version: listing.version,
       lastUpdated: listing.lastUpdated,
-    },
-  });
+    })
+    .where(eq(apps.id, appId))
+    .returning(APP_COLUMNS);
 
   await recomputeHealth(appId);
   return updated;
 }
 
 export async function recomputeHealth(appId: string) {
-  const app = await prisma.app.findUniqueOrThrow({ where: { id: appId } });
-  const competitors = await prisma.competitor.findMany({ where: { appId } });
-  const keywords = await prisma.keyword.findMany({ where: { appId }, select: { term: true } });
+  const app = await findApp(appId);
+  const appCompetitors = await db.query.competitors.findMany({ where: eq(competitors.appId, appId) });
+  const appKeywords = await db.query.keywords.findMany({
+    where: eq(keywords.appId, appId),
+    columns: { term: true },
+  });
 
   const report = computeHealthReport(
     {
@@ -140,32 +209,37 @@ export async function recomputeHealth(appId: string) {
       ratingCount: app.ratingCount,
       lastUpdated: app.lastUpdated,
       languageCount: app.languageCount,
-      keywordTerms: keywords.map((k) => k.term),
+      keywordTerms: appKeywords.map((k) => k.term),
     },
-    competitors.map((c) => ({ name: c.name, ratingCount: c.ratingCount })),
+    appCompetitors.map((c) => ({ name: c.name, ratingCount: c.ratingCount })),
   );
 
-  return prisma.healthReport.create({
-    data: {
+  const [saved] = await db
+    .insert(healthReports)
+    .values({
       appId,
       score: report.score,
       breakdown: report.breakdown as unknown as object,
       suggestions: report.suggestions as unknown as object,
-    },
-  });
+    })
+    .returning();
+  return saved;
 }
 
 export async function addKeyword(appId: string, term: string, country = DEFAULT_COUNTRY) {
-  const keyword = await prisma.keyword.create({
-    data: { appId, term: term.trim().toLowerCase(), country },
-  });
+  const [keyword] = await db
+    .insert(keywords)
+    .values({ appId, term: term.trim().toLowerCase(), country })
+    .returning();
 
   // Rank lookups hit live store search for the app + every competitor, which
   // can take a few seconds - don't make the caller wait on that.
-  after(async () => {
-    const app = await prisma.app.findUniqueOrThrow({ where: { id: appId } });
-    await trackKeyword(app, keyword.id);
-  });
+  after(
+    (async () => {
+      const app = await findApp(appId);
+      await trackKeyword(app, keyword.id);
+    })(),
+  );
 
   return keyword;
 }
@@ -177,11 +251,14 @@ export async function addKeyword(appId: string, term: string, country = DEFAULT_
 async function* autoDetectKeywordsGen(
   appId: string,
   country = DEFAULT_COUNTRY,
-): AsyncGenerator<{ keyword: Awaited<ReturnType<typeof prisma.keyword.create>>; rank: number | null }> {
-  const app = await prisma.app.findUniqueOrThrow({ where: { id: appId } });
+): AsyncGenerator<{ keyword: Keyword; rank: number | null }> {
+  const app = await findApp(appId);
   // Dedupe per storefront: the same term tracked for another country is a
   // different keyword and shouldn't suppress detection here.
-  const existing = await prisma.keyword.findMany({ where: { appId }, select: { term: true, country: true } });
+  const existing = await db.query.keywords.findMany({
+    where: eq(keywords.appId, appId),
+    columns: { term: true, country: true },
+  });
   const existingKeys = new Set(existing.map((k) => `${k.term}\u0000${k.country}`));
 
   const seeds = extractSeedTerms(`${app.title ?? ""} ${app.subtitle ?? ""}`, 8);
@@ -189,7 +266,7 @@ async function* autoDetectKeywordsGen(
 
   for (const term of newTerms) {
     try {
-      const keyword = await prisma.keyword.create({ data: { appId, term, country } });
+      const [keyword] = await db.insert(keywords).values({ appId, term, country }).returning();
       const rank = await trackKeyword(app, keyword.id);
       yield { keyword, rank };
     } catch {
@@ -206,7 +283,7 @@ async function* autoDetectKeywordsGen(
  * which terms to track yet - by the time this resolves the new keywords
  * already have real rank data, not a "Not ranked" placeholder. */
 export async function autoDetectKeywords(appId: string, country = DEFAULT_COUNTRY) {
-  const added: Awaited<ReturnType<typeof prisma.keyword.create>>[] = [];
+  const added: Keyword[] = [];
   for await (const { keyword } of autoDetectKeywordsGen(appId, country)) {
     added.push(keyword);
   }
@@ -220,12 +297,12 @@ export async function autoDetectKeywords(appId: string, country = DEFAULT_COUNTR
  * keyword row, so callers can't accidentally check a US rank for a keyword
  * the user added for the German storefront. */
 async function trackKeyword(app: App, keywordId: string): Promise<number | null> {
-  const keyword = await prisma.keyword.findUniqueOrThrow({ where: { id: keywordId } });
+  const keyword = await findKeyword(keywordId);
   const position = await stores.findRank(app.platform, keyword.term, app.storeId, keyword.country);
-  await prisma.keywordRank.create({ data: { keywordId, position } });
+  await db.insert(keywordRanks).values({ keywordId, position });
 
-  const competitors = await prisma.competitor.findMany({ where: { appId: app.id } });
-  for (const competitor of competitors) {
+  const appCompetitors = await db.query.competitors.findMany({ where: eq(competitors.appId, app.id) });
+  for (const competitor of appCompetitors) {
     await trackCompetitorForKeyword(competitor, keyword.id, keyword.term, keyword.country);
   }
   return position;
@@ -238,15 +315,18 @@ async function trackCompetitorForKeyword(
   country = DEFAULT_COUNTRY,
 ) {
   const position = await stores.findRank(competitor.platform, term, competitor.storeId, country);
-  await prisma.competitorRank.create({ data: { competitorId: competitor.id, keywordId, position } });
+  await db.insert(competitorRanks).values({ competitorId: competitor.id, keywordId, position });
 }
 
 /** Same detection as autoDetectCompetitors, but yields each competitor as
  * it's added instead of returning them all at once - see
  * autoDetectKeywordsGen for why. */
 async function* autoDetectCompetitorsGen(appId: string, country = DEFAULT_COUNTRY): AsyncGenerator<Competitor> {
-  const app = await prisma.app.findUniqueOrThrow({ where: { id: appId } });
-  const existing = await prisma.competitor.findMany({ where: { appId }, select: { storeId: true } });
+  const app = await findApp(appId);
+  const existing = await db.query.competitors.findMany({
+    where: eq(competitors.appId, appId),
+    columns: { storeId: true },
+  });
   const existingIds = new Set(existing.map((c) => c.storeId));
 
   const seeds = extractSeedTerms(`${app.title ?? ""} ${app.subtitle ?? ""}`, 3);
@@ -298,8 +378,9 @@ export async function addCompetitor(
   const listing = await stores.getListing(platform, storeId, country);
   if (!listing) throw new Error("Competitor app not found on the store");
 
-  const competitor = await prisma.competitor.create({
-    data: {
+  const [competitor] = await db
+    .insert(competitors)
+    .values({
       appId,
       platform,
       storeId: listing.storeId,
@@ -314,22 +395,24 @@ export async function addCompetitor(
       screenshotUrls: listing.screenshotUrls,
       lastUpdated: listing.lastUpdated,
       lastSyncedAt: new Date(),
-    },
-  });
+    })
+    .returning();
 
   // The competitor itself is already saved and visible; back-filling its rank
   // for every existing keyword is the slow part, so it runs after the response.
   await recomputeHealth(appId);
-  after(async () => {
-    const keywords = await prisma.keyword.findMany({ where: { appId } });
-    for (const keyword of keywords) {
-      try {
-        await trackCompetitorForKeyword(competitor, keyword.id, keyword.term, keyword.country);
-      } catch {
-        // best-effort backfill, a failed keyword shouldn't block the rest
+  after(
+    (async () => {
+      const appKeywords = await db.query.keywords.findMany({ where: eq(keywords.appId, appId) });
+      for (const keyword of appKeywords) {
+        try {
+          await trackCompetitorForKeyword(competitor, keyword.id, keyword.term, keyword.country);
+        } catch {
+          // best-effort backfill, a failed keyword shouldn't block the rest
+        }
       }
-    }
-  });
+    })(),
+  );
 
   return competitor;
 }
@@ -345,10 +428,7 @@ export interface CountryRankResult {
  * the whole scan, matching the tolerant pattern already used for scoring
  * keyword candidates in src/lib/research.ts. */
 export async function runGlobalScan(appId: string, keywordId: string): Promise<CountryRankResult[]> {
-  const [app, keyword] = await Promise.all([
-    prisma.app.findUniqueOrThrow({ where: { id: appId } }),
-    prisma.keyword.findUniqueOrThrow({ where: { id: keywordId } }),
-  ]);
+  const [app, keyword] = await Promise.all([findApp(appId), findKeyword(keywordId)]);
 
   const settled = await Promise.allSettled(
     SCAN_COUNTRIES.map(async (country) => ({
@@ -362,9 +442,9 @@ export async function runGlobalScan(appId: string, keywordId: string): Promise<C
     .map((r) => r.value);
 
   if (results.length > 0) {
-    await prisma.keywordCountryRank.createMany({
-      data: results.map((r) => ({ keywordId, country: r.country, position: r.position })),
-    });
+    await db
+      .insert(keywordCountryRanks)
+      .values(results.map((r) => ({ keywordId, country: r.country, position: r.position })));
   }
 
   return results;
@@ -373,9 +453,9 @@ export async function runGlobalScan(appId: string, keywordId: string): Promise<C
 /** Most recent scanned position per country for a keyword, so the map can
  * render already-known data on load without re-scanning every visit. */
 export async function getLatestGlobalScan(keywordId: string): Promise<CountryRankResult[]> {
-  const rows = await prisma.keywordCountryRank.findMany({
-    where: { keywordId },
-    orderBy: { checkedAt: "desc" },
+  const rows = await db.query.keywordCountryRanks.findMany({
+    where: eq(keywordCountryRanks.keywordId, keywordId),
+    orderBy: [desc(keywordCountryRanks.checkedAt)],
   });
 
   const seen = new Set<string>();
@@ -393,36 +473,41 @@ export async function getLatestGlobalScan(keywordId: string): Promise<CountryRan
  * Safe to call repeatedly - re-syncing only ever adds new reviews, since
  * store review text/rating don't change after the fact. */
 export async function syncReviews(appId: string, country = DEFAULT_COUNTRY) {
-  const app = await prisma.app.findUniqueOrThrow({ where: { id: appId } });
-  const reviews = await stores.fetchReviews(app.platform, app.storeId, country);
-  if (reviews.length === 0) return { fetched: 0, synced: 0 };
+  const app = await findApp(appId);
+  const storeReviews = await stores.fetchReviews(app.platform, app.storeId, country);
+  if (storeReviews.length === 0) return { fetched: 0, synced: 0 };
 
-  const result = await prisma.review.createMany({
-    data: reviews.map((r) => ({
-      appId,
-      externalId: r.externalId,
-      rating: r.rating,
-      title: r.title,
-      text: r.text,
-      authorName: r.authorName,
-      version: r.version,
-      country,
-      reviewedAt: r.reviewedAt,
-    })),
-    skipDuplicates: true,
-  });
-  return { fetched: reviews.length, synced: result.count };
+  const inserted = await db
+    .insert(reviews)
+    .values(
+      storeReviews.map((r) => ({
+        appId,
+        externalId: r.externalId,
+        rating: r.rating,
+        title: r.title,
+        text: r.text,
+        authorName: r.authorName,
+        version: r.version,
+        country,
+        reviewedAt: r.reviewedAt,
+      })),
+    )
+    // ON CONFLICT DO NOTHING without a target, like Prisma's skipDuplicates.
+    .onConflictDoNothing()
+    .returning({ id: reviews.id });
+  return { fetched: storeReviews.length, synced: inserted.length };
 }
 
 /** Rating distribution + heuristic positive/negative theme extraction over
  * every review stored for the app so far. Doesn't hit the store itself - call
  * syncReviews first (or pass refresh through the API route) to pull new ones. */
 export async function getReviewAnalysis(appId: string): Promise<ReviewAnalysis> {
-  const [app, reviews] = await Promise.all([
-    prisma.app.findUniqueOrThrow({ where: { id: appId }, select: { name: true } }),
-    prisma.review.findMany({ where: { appId } }),
+  const [app, reviewRows] = await Promise.all([
+    db.query.apps.findFirst({ where: eq(apps.id, appId), columns: { name: true } }),
+    db.query.reviews.findMany({ where: eq(reviews.appId, appId) }),
   ]);
-  return computeReviewAnalysis(reviews, app.name);
+  if (!app) throw new Error(`App ${appId} not found`);
+  return computeReviewAnalysis(reviewRows, app.name);
 }
 
 export interface ReviewKeywordGap {
@@ -443,8 +528,8 @@ const MAX_GAP_CANDIDATES = 8;
  * not just a raw word list. */
 export async function findReviewKeywordGaps(appId: string, country = DEFAULT_COUNTRY): Promise<ReviewKeywordGap[]> {
   const [app, existingKeywords, analysis] = await Promise.all([
-    prisma.app.findUniqueOrThrow({ where: { id: appId } }),
-    prisma.keyword.findMany({ where: { appId }, select: { term: true } }),
+    findApp(appId),
+    db.query.keywords.findMany({ where: eq(keywords.appId, appId), columns: { term: true } }),
     getReviewAnalysis(appId),
   ]);
   const trackedTerms = new Set(existingKeywords.map((k) => k.term));
@@ -486,33 +571,38 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * product-analytics platform. Returns null if PostHog isn't connected, so the
  * caller can render a "connect PostHog" prompt instead of an empty chart. */
 export async function getProductHealthTrend(appId: string, days = 30): Promise<ProductHealthPoint[] | null> {
-  const app = await prisma.app.findUniqueOrThrow({
-    where: { id: appId },
-    omit: { posthogApiKey: false },
+  // The only query allowed to pull the API credential - everything else
+  // selects around it (APP_COLUMNS / findApp).
+  const creds = await db.query.apps.findFirst({
+    where: eq(apps.id, appId),
+    columns: { posthogHost: true, posthogProjectId: true, posthogApiKey: true },
   });
-  if (!app.posthogHost || !app.posthogProjectId || !app.posthogApiKey) return null;
+  if (!creds) throw new Error(`App ${appId} not found`);
+  if (!creds.posthogHost || !creds.posthogProjectId || !creds.posthogApiKey) return null;
 
   const windowStart = new Date(Date.now() - days * DAY_MS);
-  const [dauPoints, priorReport, healthReports] = await Promise.all([
+  const [dauPoints, priorReports, healthReportRows] = await Promise.all([
     fetchDailyActiveUsers(
-      { host: app.posthogHost, projectId: app.posthogProjectId, apiKey: app.posthogApiKey },
+      { host: creds.posthogHost, projectId: creds.posthogProjectId, apiKey: creds.posthogApiKey },
       days,
     ),
-    prisma.healthReport.findFirst({
-      where: { appId, createdAt: { lt: windowStart } },
-      orderBy: { createdAt: "desc" },
-      select: { score: true },
-    }),
-    prisma.healthReport.findMany({
-      where: { appId, createdAt: { gte: windowStart } },
-      orderBy: { createdAt: "asc" },
-      select: { score: true, createdAt: true },
-    }),
+    db
+      .select({ score: healthReports.score })
+      .from(healthReports)
+      .where(and(eq(healthReports.appId, appId), lt(healthReports.createdAt, windowStart)))
+      .orderBy(desc(healthReports.createdAt))
+      .limit(1),
+    db
+      .select({ score: healthReports.score, createdAt: healthReports.createdAt })
+      .from(healthReports)
+      .where(and(eq(healthReports.appId, appId), gte(healthReports.createdAt, windowStart)))
+      .orderBy(asc(healthReports.createdAt)),
   ]);
   if (dauPoints === null) return null;
+  const priorReport = priorReports[0];
 
   const scoreByDate = new Map<string, number>();
-  for (const r of healthReports) {
+  for (const r of healthReportRows) {
     scoreByDate.set(r.createdAt.toISOString().slice(0, 10), r.score);
   }
 
@@ -527,10 +617,10 @@ export async function getProductHealthTrend(appId: string, days = 30): Promise<P
  * score, and keyword/competitor rank positions. Meant to be triggered once a
  * day by an external cron hitting POST /api/track. */
 export async function runDailyTracking(country = DEFAULT_COUNTRY) {
-  const apps = await prisma.app.findMany();
+  const trackedApps = await db.query.apps.findMany({ columns: { posthogApiKey: false } });
   const summary = { apps: 0, keywordsTracked: 0, competitorsTracked: 0, reviewsSynced: 0, errors: [] as string[] };
 
-  for (const app of apps) {
+  for (const app of trackedApps) {
     try {
       await syncAppMetadata(app.id, country);
       summary.apps += 1;
@@ -542,19 +632,19 @@ export async function runDailyTracking(country = DEFAULT_COUNTRY) {
         summary.errors.push(`reviews (${app.name}): ${(e as Error).message}`);
       }
 
-      const keywords = await prisma.keyword.findMany({ where: { appId: app.id } });
-      const competitors = await prisma.competitor.findMany({ where: { appId: app.id } });
+      const appKeywords = await db.query.keywords.findMany({ where: eq(keywords.appId, app.id) });
+      const appCompetitors = await db.query.competitors.findMany({ where: eq(competitors.appId, app.id) });
 
       // Each keyword is checked in its own storefront, not the pass-wide
       // default - a keyword added for the Russian storefront must keep being
       // tracked there even though metadata/reviews use the default country.
-      for (const keyword of keywords) {
+      for (const keyword of appKeywords) {
         try {
           const position = await stores.findRank(app.platform, keyword.term, app.storeId, keyword.country);
-          await prisma.keywordRank.create({ data: { keywordId: keyword.id, position } });
+          await db.insert(keywordRanks).values({ keywordId: keyword.id, position });
           summary.keywordsTracked += 1;
 
-          for (const competitor of competitors) {
+          for (const competitor of appCompetitors) {
             try {
               await trackCompetitorForKeyword(competitor, keyword.id, keyword.term, keyword.country);
               summary.competitorsTracked += 1;

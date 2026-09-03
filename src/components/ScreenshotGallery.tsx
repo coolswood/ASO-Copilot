@@ -16,7 +16,6 @@ function Screenshot({ url, index }: { url: string; index: number }) {
   }
 
   return (
-    // eslint-disable-next-line @next/next/no-img-element
     <img
       src={url}
       alt={`Screenshot ${index + 1}`}

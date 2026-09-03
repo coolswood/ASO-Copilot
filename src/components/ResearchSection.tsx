@@ -1,6 +1,3 @@
-"use client";
-
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Search, SearchX, Sparkles, Users } from "lucide-react";
 import { SiAppstore, SiGoogleplay } from "react-icons/si";
@@ -20,8 +17,7 @@ interface NewCompetitor {
   iconUrl: string | null;
 }
 
-export default function ResearchSection({ appId }: { appId: string }) {
-  const router = useRouter();
+export default function ResearchSection({ appId, onChanged }: { appId: string; onChanged?: () => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null);
@@ -37,7 +33,7 @@ export default function ResearchSection({ appId }: { appId: string }) {
       if (!res.ok) throw new Error(data.error ?? "Research failed");
       setSuggestions(data.suggestions);
       setNewCompetitors(data.newCompetitors ?? []);
-      if (data.newCompetitors?.length > 0) router.refresh();
+      if (data.newCompetitors?.length > 0) onChanged?.();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -55,7 +51,7 @@ export default function ResearchSection({ appId }: { appId: string }) {
       });
       if (res.ok) {
         setSuggestions((prev) => prev?.filter((s) => s.term !== term) ?? null);
-        router.refresh();
+        onChanged?.();
       }
     } finally {
       setTracking(null);

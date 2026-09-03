@@ -1,6 +1,3 @@
-"use client";
-
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Users } from "lucide-react";
 import AppSearchPicker, { SearchHit } from "./AppSearchPicker";
@@ -44,13 +41,16 @@ export default function CompetitorsSection({
   platform,
   competitors,
   keywords,
+  onChanged,
 }: {
   appId: string;
   platform: StorePlatform;
   competitors: CompetitorWithRanks[];
   keywords: { id: string; term: string; country: string }[];
+  /** Re-fetches the app after competitor mutations (was router.refresh()
+   * against the server component in the Next.js app). */
+  onChanged?: () => void;
 }) {
-  const router = useRouter();
   const [showSearch, setShowSearch] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,12 +67,12 @@ export default function CompetitorsSection({
       return;
     }
     setShowSearch(false);
-    router.refresh();
+    onChanged?.();
   }
 
   async function removeCompetitor(competitorId: string) {
     await fetch(`/api/apps/${appId}/competitors/${competitorId}`, { method: "DELETE" });
-    router.refresh();
+    onChanged?.();
   }
 
   return (

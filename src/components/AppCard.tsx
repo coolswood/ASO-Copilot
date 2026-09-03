@@ -1,8 +1,5 @@
-"use client";
-
 import { useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { Link } from "react-router";
 import { Pin } from "lucide-react";
 import { SiAppstore, SiGoogleplay } from "react-icons/si";
 import AppIcon from "./AppIcon";
@@ -55,6 +52,7 @@ export default function AppCard({
   competitorCount,
   healthScore,
   pinned,
+  onChanged,
 }: {
   id: string;
   name: string;
@@ -64,8 +62,10 @@ export default function AppCard({
   competitorCount: number;
   healthScore: number | null;
   pinned: boolean;
+  /** Re-fetches the dashboard list after a successful pin toggle (was
+   * router.refresh() against the server component in the Next.js app). */
+  onChanged?: () => void;
 }) {
-  const router = useRouter();
   const [isPinned, setIsPinned] = useState(pinned);
   const [toggling, setToggling] = useState(false);
 
@@ -83,7 +83,7 @@ export default function AppCard({
         body: JSON.stringify({ pinned: next }),
       });
       if (!res.ok) throw new Error("Failed to update pin");
-      router.refresh();
+      onChanged?.();
     } catch {
       setIsPinned(!next);
     } finally {
@@ -93,7 +93,7 @@ export default function AppCard({
 
   return (
     <Link
-      href={`/apps/${id}`}
+      to={`/apps/${id}`}
       className="card-hover group relative rounded-xl border border-border bg-card p-5 flex flex-col gap-4 hover:border-accent hover:-translate-y-1"
     >
       <button

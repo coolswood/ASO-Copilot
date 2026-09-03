@@ -1,6 +1,3 @@
-"use client";
-
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ExternalLink, RefreshCw } from "lucide-react";
 import AppIcon from "./AppIcon";
@@ -16,6 +13,7 @@ export default function AppHeader({
   rating,
   ratingCount,
   version,
+  onSynced,
 }: {
   id: string;
   name: string;
@@ -26,15 +24,17 @@ export default function AppHeader({
   rating: number | null;
   ratingCount: number | null;
   version: string | null;
+  /** Re-fetches the app after a sync (was router.refresh() against the
+   * server component in the Next.js app). */
+  onSynced?: () => void;
 }) {
-  const router = useRouter();
   const [syncing, setSyncing] = useState(false);
 
   async function sync() {
     setSyncing(true);
     try {
       await fetch(`/api/apps/${id}/sync`, { method: "POST" });
-      router.refresh();
+      onSynced?.();
     } finally {
       setSyncing(false);
     }

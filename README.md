@@ -43,7 +43,9 @@ https://github.com/user-attachments/assets/970ce32e-a980-42ce-a0eb-529c425439af
 
 ## Stack
 
-Next.js (App Router) + Prisma + PostgreSQL. Store data comes from the public iTunes Search/Lookup
+Bun + Vite (React 19, React Router) + Hono + Drizzle ORM + PostgreSQL — a Vite SPA served by a
+single Hono process that also hosts the REST API and the MCP server (built directly on
+`@modelcontextprotocol/sdk`, no adapter layer). Store data comes from the public iTunes Search/Lookup
 API (App Store) and `google-play-scraper` (Google Play). There is no free official API for search
 volume or keyword rank position, so:
 
@@ -60,16 +62,33 @@ volume or keyword rank position, so:
 ## Setup
 
 ```bash
-npm install
-docker compose up -d          # local Postgres on port 5433
-npx prisma migrate dev        # create tables
-npm run dev
+bun install
+docker compose up -d db       # local Postgres on port 5433 (or any Postgres — set DATABASE_URL)
+bun run db:migrate            # create tables (fresh database only — see below)
+bun run dev
 ```
 
-Open http://localhost:3000, click **Add App**, search for your app, and add it.
+`bun run dev` starts Vite (UI on http://localhost:5173, which proxies `/api` requests) and the API
+server on :3000 concurrently. Open http://localhost:5173, click **Add App**, search for your app,
+and add it.
 
 Copy `.env.example` to `.env` and adjust `DATABASE_URL` if you're pointing at a different Postgres
 instance (e.g. Supabase/Neon/RDS instead of the bundled docker-compose one).
+
+**Existing database from the Prisma era?** The Drizzle schema is DDL-identical to the old Prisma
+one, so your data carries over as-is — but do **not** run `bun run db:migrate` against it (Drizzle's
+migration journal doesn't know about that database, so it would try to recreate existing tables).
+Instead run `bun run db:push` once: it's a no-op that just confirms schema parity.
+
+### Production / self-hosting
+
+```bash
+bun run build     # typecheck + vite build into dist/
+bun run start     # single process on :3000
+```
+
+In production one Hono process on :3000 serves everything: the built SPA, the REST API under
+`/api`, and the MCP endpoint at `/api/mcp`.
 
 ## Daily tracking
 
@@ -105,7 +124,9 @@ CRON_SCHEDULE="0 6 * * *"                # optional, standard 5-field cron synta
 
 The app exposes an MCP server at `/api/mcp` (Streamable HTTP transport) with tools for listing
 apps, searching stores, adding apps/keywords/competitors, pulling health reports, finding winning
-keywords, generating AI copy suggestions, and running a tracking pass on demand.
+keywords, generating AI copy suggestions, and running a tracking pass on demand. Sessions are
+stateful: the server keeps a live session per `Mcp-Session-Id` header, and a `DELETE` to
+`/api/mcp` terminates that session (auth semantics are unchanged — see below).
 
 Point any MCP-compatible client at it, e.g. in Claude Code (`.mcp.json`, already checked in at the
 repo root pointing at localhost):
@@ -156,8 +177,8 @@ Two separate PostHog integrations - don't mix them up:
 
 
 - **This tool's own usage analytics** (are you clicking around this app, not any tracked app's
-  users) — off by default. Set `NEXT_PUBLIC_POSTHOG_KEY` (and optionally
-  `NEXT_PUBLIC_POSTHOG_HOST` if self-hosting PostHog) in `.env` to enable pageview tracking via
+  users) — off by default. Set `VITE_POSTHOG_KEY` (and optionally
+  `VITE_POSTHOG_HOST` if self-hosting PostHog) in `.env` to enable pageview tracking via
   `src/components/PostHogProvider.tsx` — no code changes needed, it's a no-op until the key is set.
 - **Per-app product health** — each tracked app can link its *own* PostHog project (Settings tab,
   `src/components/PostHogSettings.tsx`) so its real daily active users show up next to its ASO
@@ -174,9 +195,12 @@ Two separate PostHog integrations - don't mix them up:
 - `src/lib/reviewAnalysis.ts` — rating distribution + positive/negative theme extraction
 - `src/lib/posthogIntegration.ts` — per-app PostHog client (daily active users query)
 - `src/lib/storeLinks.ts` / `src/lib/metricColor.ts` — small shared UI helpers (outbound store
-  links, volume/difficulty coloring) kept out of `research.ts` so Client Components importing them
+  links, volume/difficulty coloring) kept out of `research.ts` so client components importing them
   don't drag in server-only store-scraping dependencies
 - `src/lib/appService.ts` — shared logic used by both the REST API and the MCP tools
-- `src/app/api/` — REST routes
-- `src/app/api/[transport]/route.ts` — MCP server
+- `server/index.ts` — Hono entry: serves the API, MCP, and (in production) the built SPA on :3000
+- `server/routes/` — REST API routes, mounted under `/api`
+- `server/mcp.ts` — MCP server at `/api/mcp` (raw `@modelcontextprotocol/sdk`, stateful sessions)
+- `src/pages/` / `src/components/` — React Router pages and the UI components they compose
+- `src/db/schema.ts` + `drizzle/` — Drizzle schema and generated SQL migrations
 - `docker/cron/` — optional bundled cron container for daily tracking (see "Daily tracking" above)

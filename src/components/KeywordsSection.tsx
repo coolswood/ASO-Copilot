@@ -1,6 +1,3 @@
-"use client";
-
-import { useRouter } from "next/navigation";
 import { Fragment, useRef, useState } from "react";
 import { ChevronDown, Copy, Minus, Sparkles, Tags, TrendingDown, TrendingUp } from "lucide-react";
 import { SiAppstore, SiGoogleplay } from "react-icons/si";
@@ -81,12 +78,15 @@ export default function KeywordsSection({
   appId,
   platform,
   keywords,
+  onChanged,
 }: {
   appId: string;
   platform: StorePlatform;
   keywords: KeywordWithRanks[];
+  /** Re-fetches the app after keyword mutations (was router.refresh()
+   * against the server component in the Next.js app). */
+  onChanged?: () => void;
 }) {
-  const router = useRouter();
   const [term, setTerm] = useState("");
   const [newCountry, setNewCountry] = useState("us");
   const [countryFilter, setCountryFilter] = useState("");
@@ -132,7 +132,7 @@ export default function KeywordsSection({
     try {
       const res = await fetch(`/api/apps/${appId}/keywords/auto-detect`, { method: "POST" });
       if (!res.ok) throw new Error("Failed to auto-detect keywords");
-      router.refresh();
+      onChanged?.();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -153,7 +153,7 @@ export default function KeywordsSection({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to add keyword");
       setTerm("");
-      router.refresh();
+      onChanged?.();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -163,7 +163,7 @@ export default function KeywordsSection({
 
   async function removeKeyword(keywordId: string) {
     await fetch(`/api/apps/${appId}/keywords/${keywordId}`, { method: "DELETE" });
-    router.refresh();
+    onChanged?.();
   }
 
   return (

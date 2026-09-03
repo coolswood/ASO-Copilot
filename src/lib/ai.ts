@@ -1,4 +1,6 @@
-import { prisma } from "./prisma";
+import { and, eq } from "drizzle-orm";
+import { db } from "@/db";
+import { aiCopySuggestions } from "@/db/schema";
 import type { StorePlatform } from "./stores/types";
 import type { AILocale } from "./aiLocales";
 
@@ -211,18 +213,24 @@ export async function saveCopySuggestions(
   suggestions: CopySuggestion[],
   source: CopySuggestionSource,
 ) {
-  return prisma.aiCopySuggestion.upsert({
-    where: { appId_locale: { appId, locale } },
-    create: { appId, locale, suggestions: suggestions as unknown as object, source },
-    update: { suggestions: suggestions as unknown as object, source },
-  });
+  const [row] = await db
+    .insert(aiCopySuggestions)
+    .values({ appId, locale, suggestions: suggestions as unknown as object, source })
+    .onConflictDoUpdate({
+      target: [aiCopySuggestions.appId, aiCopySuggestions.locale],
+      set: { suggestions: suggestions as unknown as object, source },
+    })
+    .returning();
+  return row;
 }
 
 export async function getSavedCopySuggestions(
   appId: string,
   locale: string,
 ): Promise<{ suggestions: CopySuggestion[]; source: CopySuggestionSource } | null> {
-  const row = await prisma.aiCopySuggestion.findUnique({ where: { appId_locale: { appId, locale } } });
+  const row = await db.query.aiCopySuggestions.findFirst({
+    where: and(eq(aiCopySuggestions.appId, appId), eq(aiCopySuggestions.locale, locale)),
+  });
   if (!row) return null;
   return { suggestions: row.suggestions as unknown as CopySuggestion[], source: row.source as CopySuggestionSource };
 }
@@ -231,5 +239,7 @@ export async function getSavedCopySuggestions(
  * listing) or is no longer wanted - deleteMany rather than delete so calling
  * this twice, or on a locale that was never generated, isn't an error. */
 export async function deleteCopySuggestions(appId: string, locale: string) {
-  await prisma.aiCopySuggestion.deleteMany({ where: { appId, locale } });
+  await db
+    .delete(aiCopySuggestions)
+    .where(and(eq(aiCopySuggestions.appId, appId), eq(aiCopySuggestions.locale, locale)));
 }
