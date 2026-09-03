@@ -46,7 +46,7 @@ Hono — server/index.ts (один процесс, :3000 в prod)
 
 ## Схема БД (`src/db/schema.ts`)
 
-`apps`, `appLocalizations`, `keywords`, `keywordRanks`, `keywordCountryRanks`, `competitors`, `competitorRanks`, `healthReports`, `keywordSuggestions`, `reviews`, `aiCopySuggestions`. Ключевая связь: ключевое слово принадлежит сторфронту (стране) — один термин может трекаться в нескольких рынках с отдельной историей рангов.
+`apps`, `appLocalizations`, `keywords`, `keywordRanks`, `keywordCountryRanks`, `competitors`, `competitorRanks`, `healthReports`, `keywordSuggestions`, `reviews`, `aiCopySuggestions`. Ключевая связь: ключевое слово принадлежит сторфронту (стране) — один термин может трекаться в нескольких рынках с отдельной историей рангов. Сторфронт — глобальное состояние приложения (селектор страны в URL, см. [features/country-selector.md](./features/country-selector.md)): `apps` хранит home-страну, `competitors` и `keywordSuggestions` тоже привязаны к стране (входит в их уникальные ключи); health score при этом глобален, а локализации/AI-copy живут на отдельной оси `locale`.
 
 ## Интеграции
 

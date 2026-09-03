@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ExternalLink, RefreshCw } from "lucide-react";
 import AppIcon from "./AppIcon";
 import type { StorePlatform } from "@/lib/stores/types";
@@ -14,6 +14,7 @@ export default function AppHeader({
   ratingCount,
   version,
   onSynced,
+  actions,
 }: {
   id: string;
   name: string;
@@ -27,6 +28,9 @@ export default function AppHeader({
   /** Re-fetches the app after a sync (was router.refresh() against the
    * server component in the Next.js app). */
   onSynced?: () => void;
+  /** Extra controls rendered with the header buttons - the global storefront
+   * selector lives here so it stays visible above every tab. */
+  actions?: ReactNode;
 }) {
   const [syncing, setSyncing] = useState(false);
 
@@ -58,6 +62,7 @@ export default function AppHeader({
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+        {actions}
         {url && (
           <a
             href={url}

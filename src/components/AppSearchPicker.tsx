@@ -13,10 +13,13 @@ export interface SearchHit {
 
 export default function AppSearchPicker({
   platform,
+  country = "us",
   onSelect,
   allowPlatformChange = true,
 }: {
   platform: StorePlatform;
+  /** Storefront to search in - search results differ per market. */
+  country?: string;
   onSelect: (hit: SearchHit, platform: StorePlatform) => void | Promise<void>;
   allowPlatformChange?: boolean;
 }) {
@@ -32,9 +35,12 @@ export default function AppSearchPicker({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/search?platform=${selectedPlatform}&term=${encodeURIComponent(term)}`,
-      );
+      const params = new URLSearchParams({
+        platform: selectedPlatform,
+        term: term.trim(),
+        country,
+      });
+      const res = await fetch(`/api/search?${params}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Search failed");
       setResults(data.results);

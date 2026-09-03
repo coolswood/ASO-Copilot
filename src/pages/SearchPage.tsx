@@ -2,10 +2,9 @@ import { useMemo, useState } from "react";
 import { Search as SearchIcon, SearchX, SlidersHorizontal } from "lucide-react";
 import { SiAppstore, SiGoogleplay } from "react-icons/si";
 import AppIcon from "@/components/AppIcon";
+import CountrySelect from "@/components/CountrySelect";
 import MetricBar from "@/components/MetricBar";
-import { storefrontLabel } from "@/components/countryShared";
 import { appStoreSearchUrl, playStoreSearchUrl } from "@/lib/storeLinks";
-import { SCAN_COUNTRIES } from "@/lib/countries";
 import type { StorePlatform } from "@/lib/stores/types";
 
 interface RankingApp {
@@ -132,19 +131,11 @@ export default function KeywordSearchPage() {
           <option value="ANDROID">Google Play</option>
           <option value="IOS">App Store</option>
         </select>
-        <select
+        <CountrySelect
           value={country}
-          onChange={(e) => setCountry(e.target.value)}
+          onChange={setCountry}
           title="Storefront to search in - demand, difficulty and ranking apps are measured against this market's own results"
-          aria-label="Storefront country"
-          className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted transition-colors hover:border-accent"
-        >
-          {SCAN_COUNTRIES.map((c) => (
-            <option key={c} value={c}>
-              {storefrontLabel(c)} ({c})
-            </option>
-          ))}
-        </select>
+        />
         <input
           value={term}
           onChange={(e) => setTerm(e.target.value)}
@@ -239,10 +230,16 @@ export default function KeywordSearchPage() {
                     />
                   </td>
                   <td className="p-3">
-                    <div className="h-3 w-20 rounded bg-border animate-pulse" style={{ animationDelay: `${i * 80}ms` }} />
+                    <div
+                      className="h-3 w-20 rounded bg-border animate-pulse"
+                      style={{ animationDelay: `${i * 80}ms` }}
+                    />
                   </td>
                   <td className="p-3">
-                    <div className="h-3 w-20 rounded bg-border animate-pulse" style={{ animationDelay: `${i * 80}ms` }} />
+                    <div
+                      className="h-3 w-20 rounded bg-border animate-pulse"
+                      style={{ animationDelay: `${i * 80}ms` }}
+                    />
                   </td>
                   <td className="p-3">
                     <div className="flex gap-1">
@@ -262,8 +259,9 @@ export default function KeywordSearchPage() {
         </div>
       )}
 
-      {!loading && filteredResults && (
-        filteredResults.length === 0 ? (
+      {!loading &&
+        filteredResults &&
+        (filteredResults.length === 0 ? (
           <div className="animate-fade-in-up mt-6 flex flex-col items-center gap-2 rounded-xl border border-dashed border-border py-10 text-center">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-border/50">
               <SearchX className="h-5 w-5 text-muted" />
@@ -298,7 +296,7 @@ export default function KeywordSearchPage() {
                         <div className="flex items-center gap-2">
                           <span className="font-medium whitespace-nowrap">{r.term}</span>
                           <a
-                            href={appStoreSearchUrl(r.term)}
+                            href={appStoreSearchUrl(r.term, country)}
                             target="_blank"
                             rel="noreferrer"
                             title="Search on the App Store"
@@ -351,8 +349,7 @@ export default function KeywordSearchPage() {
               </tbody>
             </table>
           </div>
-        )
-      )}
+        ))}
     </div>
   );
 }

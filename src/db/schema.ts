@@ -30,10 +30,18 @@ export const platformEnum = pgEnum("Platform", ["IOS", "ANDROID"]);
 export const apps = pgTable(
   "App",
   {
-    id: text("id").primaryKey().$defaultFn(() => createId()),
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId()),
     platform: platformEnum("platform").notNull(),
     storeId: text("storeId").notNull(),
     name: text("name").notNull(),
+    // Home storefront of the app - the market the owner primarily targets.
+    // Drives the fallback for the global country selector when the URL has
+    // no/invalid ?country=, and the storefront used for metadata/review sync
+    // in the daily tracking pass. Lowercase ISO 3166-1 alpha-2, like every
+    // other `country` column.
+    country: text("country").notNull().default("us"),
     developer: text("developer"),
     iconUrl: text("iconUrl"),
     url: text("url"),
@@ -72,7 +80,9 @@ export const apps = pgTable(
 export const appLocalizations = pgTable(
   "AppLocalization",
   {
-    id: text("id").primaryKey().$defaultFn(() => createId()),
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId()),
     appId: text("appId").notNull(),
     locale: text("locale").notNull(),
     title: text("title"),
@@ -102,7 +112,9 @@ export const appLocalizations = pgTable(
 export const keywords = pgTable(
   "Keyword",
   {
-    id: text("id").primaryKey().$defaultFn(() => createId()),
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId()),
     appId: text("appId").notNull(),
     term: text("term").notNull(),
     country: text("country").notNull().default("us"),
@@ -111,11 +123,7 @@ export const keywords = pgTable(
     createdAt: createdAt(),
   },
   (t) => [
-    uniqueIndex("Keyword_appId_term_country_key").on(
-      t.appId,
-      t.term,
-      t.country,
-    ),
+    uniqueIndex("Keyword_appId_term_country_key").on(t.appId, t.term, t.country),
     foreignKey({
       name: "Keyword_appId_fkey",
       columns: [t.appId],
@@ -129,7 +137,9 @@ export const keywords = pgTable(
 export const keywordRanks = pgTable(
   "KeywordRank",
   {
-    id: text("id").primaryKey().$defaultFn(() => createId()),
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId()),
     keywordId: text("keywordId").notNull(),
     position: integer("position"),
     checkedAt: timestamp("checkedAt", { precision: 3, mode: "date" })
@@ -151,7 +161,9 @@ export const keywordRanks = pgTable(
 export const keywordCountryRanks = pgTable(
   "KeywordCountryRank",
   {
-    id: text("id").primaryKey().$defaultFn(() => createId()),
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId()),
     keywordId: text("keywordId").notNull(),
     country: text("country").notNull(),
     position: integer("position"),
@@ -178,11 +190,17 @@ export const keywordCountryRanks = pgTable(
 export const competitors = pgTable(
   "Competitor",
   {
-    id: text("id").primaryKey().$defaultFn(() => createId()),
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId()),
     appId: text("appId").notNull(),
     platform: platformEnum("platform").notNull(),
     storeId: text("storeId").notNull(),
     name: text("name").notNull(),
+    // Storefront the competitor was discovered in / is compared against.
+    // The same store app can be a competitor in several markets, so country
+    // is part of the identity (see the unique index below).
+    country: text("country").notNull().default("us"),
     iconUrl: text("iconUrl"),
     rating: doublePrecision("rating"),
     ratingCount: integer("ratingCount"),
@@ -198,10 +216,11 @@ export const competitors = pgTable(
     createdAt: createdAt(),
   },
   (t) => [
-    uniqueIndex("Competitor_appId_platform_storeId_key").on(
+    uniqueIndex("Competitor_appId_platform_storeId_country_key").on(
       t.appId,
       t.platform,
       t.storeId,
+      t.country,
     ),
     foreignKey({
       name: "Competitor_appId_fkey",
@@ -216,7 +235,9 @@ export const competitors = pgTable(
 export const competitorRanks = pgTable(
   "CompetitorRank",
   {
-    id: text("id").primaryKey().$defaultFn(() => createId()),
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId()),
     competitorId: text("competitorId").notNull(),
     keywordId: text("keywordId").notNull(),
     position: integer("position"),
@@ -250,7 +271,9 @@ export const competitorRanks = pgTable(
 export const healthReports = pgTable(
   "HealthReport",
   {
-    id: text("id").primaryKey().$defaultFn(() => createId()),
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId()),
     appId: text("appId").notNull(),
     score: integer("score").notNull(),
     breakdown: jsonb("breakdown").$type<unknown>().notNull(),
@@ -271,16 +294,22 @@ export const healthReports = pgTable(
 export const keywordSuggestions = pgTable(
   "KeywordSuggestion",
   {
-    id: text("id").primaryKey().$defaultFn(() => createId()),
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId()),
     appId: text("appId").notNull(),
     term: text("term").notNull(),
+    // Storefront the suggestion was researched for - volume/difficulty are
+    // measured against a specific market's search results, so the same term
+    // can carry different numbers per country (part of the unique key).
+    country: text("country").notNull().default("us"),
     volume: integer("volume"),
     difficulty: integer("difficulty"),
     source: text("source").notNull(),
     createdAt: createdAt(),
   },
   (t) => [
-    uniqueIndex("KeywordSuggestion_appId_term_key").on(t.appId, t.term),
+    uniqueIndex("KeywordSuggestion_appId_term_country_key").on(t.appId, t.term, t.country),
     foreignKey({
       name: "KeywordSuggestion_appId_fkey",
       columns: [t.appId],
@@ -294,7 +323,9 @@ export const keywordSuggestions = pgTable(
 export const reviews = pgTable(
   "Review",
   {
-    id: text("id").primaryKey().$defaultFn(() => createId()),
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId()),
     appId: text("appId").notNull(),
     externalId: text("externalId").notNull(),
     rating: integer("rating"),
@@ -322,7 +353,9 @@ export const reviews = pgTable(
 export const aiCopySuggestions = pgTable(
   "AiCopySuggestion",
   {
-    id: text("id").primaryKey().$defaultFn(() => createId()),
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId()),
     appId: text("appId").notNull(),
     locale: text("locale").notNull(),
     suggestions: jsonb("suggestions").$type<unknown>().notNull(),
@@ -358,15 +391,12 @@ export const appsRelations = relations(apps, ({ many }) => ({
   localizations: many(appLocalizations),
 }));
 
-export const appLocalizationsRelations = relations(
-  appLocalizations,
-  ({ one }) => ({
-    app: one(apps, {
-      fields: [appLocalizations.appId],
-      references: [apps.id],
-    }),
+export const appLocalizationsRelations = relations(appLocalizations, ({ one }) => ({
+  app: one(apps, {
+    fields: [appLocalizations.appId],
+    references: [apps.id],
   }),
-);
+}));
 
 export const keywordsRelations = relations(keywords, ({ one, many }) => ({
   app: one(apps, { fields: [keywords.appId], references: [apps.id] }),
@@ -382,59 +412,47 @@ export const keywordRanksRelations = relations(keywordRanks, ({ one }) => ({
   }),
 }));
 
-export const keywordCountryRanksRelations = relations(
-  keywordCountryRanks,
-  ({ one }) => ({
-    keyword: one(keywords, {
-      fields: [keywordCountryRanks.keywordId],
-      references: [keywords.id],
-    }),
+export const keywordCountryRanksRelations = relations(keywordCountryRanks, ({ one }) => ({
+  keyword: one(keywords, {
+    fields: [keywordCountryRanks.keywordId],
+    references: [keywords.id],
   }),
-);
+}));
 
 export const competitorsRelations = relations(competitors, ({ one, many }) => ({
   app: one(apps, { fields: [competitors.appId], references: [apps.id] }),
   ranks: many(competitorRanks),
 }));
 
-export const competitorRanksRelations = relations(
-  competitorRanks,
-  ({ one }) => ({
-    competitor: one(competitors, {
-      fields: [competitorRanks.competitorId],
-      references: [competitors.id],
-    }),
-    keyword: one(keywords, {
-      fields: [competitorRanks.keywordId],
-      references: [keywords.id],
-    }),
+export const competitorRanksRelations = relations(competitorRanks, ({ one }) => ({
+  competitor: one(competitors, {
+    fields: [competitorRanks.competitorId],
+    references: [competitors.id],
   }),
-);
+  keyword: one(keywords, {
+    fields: [competitorRanks.keywordId],
+    references: [keywords.id],
+  }),
+}));
 
 export const healthReportsRelations = relations(healthReports, ({ one }) => ({
   app: one(apps, { fields: [healthReports.appId], references: [apps.id] }),
 }));
 
-export const keywordSuggestionsRelations = relations(
-  keywordSuggestions,
-  ({ one }) => ({
-    app: one(apps, {
-      fields: [keywordSuggestions.appId],
-      references: [apps.id],
-    }),
+export const keywordSuggestionsRelations = relations(keywordSuggestions, ({ one }) => ({
+  app: one(apps, {
+    fields: [keywordSuggestions.appId],
+    references: [apps.id],
   }),
-);
+}));
 
 export const reviewsRelations = relations(reviews, ({ one }) => ({
   app: one(apps, { fields: [reviews.appId], references: [apps.id] }),
 }));
 
-export const aiCopySuggestionsRelations = relations(
-  aiCopySuggestions,
-  ({ one }) => ({
-    app: one(apps, {
-      fields: [aiCopySuggestions.appId],
-      references: [apps.id],
-    }),
+export const aiCopySuggestionsRelations = relations(aiCopySuggestions, ({ one }) => ({
+  app: one(apps, {
+    fields: [aiCopySuggestions.appId],
+    references: [apps.id],
   }),
-);
+}));

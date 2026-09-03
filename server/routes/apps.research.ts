@@ -10,6 +10,7 @@ import {
   scoreKeywords,
 } from "@/lib/research";
 import { autoDetectCompetitors } from "@/lib/appService";
+import { parseCountryParam } from "@/lib/countryParam";
 
 const MAX_SCORED = 15;
 
@@ -18,6 +19,11 @@ const researchRoutes = new Hono();
 researchRoutes.get("/", async (c) => {
   const id = c.req.param("id")!;
   const limit = Number(c.req.query("limit") ?? MAX_SCORED);
+  // Storefront the research runs against - autocomplete, volume/difficulty
+  // scoring and competitor discovery are all market-specific. Defaults to
+  // "us" (the pre-selector behavior) rather than no-filter, because a mixed
+  // cross-market candidate list is meaningless for scoring.
+  const country = parseCountryParam(c.req.query("country")) ?? "us";
 
   const app = await db.query.apps.findFirst({
     where: eq(apps.id, id),
@@ -41,7 +47,9 @@ researchRoutes.get("/", async (c) => {
     new Set(
       (
         await Promise.all(
-          ownSeeds.slice(0, 5).map((seed) => stores.autocompleteSuggestions(app.platform, seed)),
+          ownSeeds
+            .slice(0, 5)
+            .map((seed) => stores.autocompleteSuggestions(app.platform, seed, country)),
         )
       ).flat(),
     ),
@@ -52,17 +60,25 @@ researchRoutes.get("/", async (c) => {
   );
   const capped = Array.from(new Set(candidates)).slice(0, Math.min(limit, MAX_SCORED));
 
-  const scored = await scoreKeywords(app.platform, capped, app.storeId);
+  const scored = await scoreKeywords(app.platform, capped, app.storeId, country);
   const ranked = scored.sort((a, b) => keywordOpportunityRank(b) - keywordOpportunityRank(a));
 
   await Promise.all(
     ranked.map((k) =>
       db
         .insert(keywordSuggestions)
-        .values({ appId: id, term: k.term, volume: k.volume, difficulty: k.difficulty, source: "research" })
-        // Prisma upsert on the appId_term unique key: same row is refreshed.
+        .values({
+          appId: id,
+          term: k.term,
+          country,
+          volume: k.volume,
+          difficulty: k.difficulty,
+          source: "research",
+        })
+        // Prisma upsert on the appId_term_country unique key: same row is
+        // refreshed per storefront.
         .onConflictDoUpdate({
-          target: [keywordSuggestions.appId, keywordSuggestions.term],
+          target: [keywordSuggestions.appId, keywordSuggestions.term, keywordSuggestions.country],
           set: { volume: k.volume, difficulty: k.difficulty },
         }),
     ),
@@ -71,7 +87,7 @@ researchRoutes.get("/", async (c) => {
   // Keyword research and competitor discovery both start from the same
   // seed terms, so run competitor discovery alongside it - most users
   // don't have anyone to compare against yet either.
-  const newCompetitors = await autoDetectCompetitors(id);
+  const newCompetitors = await autoDetectCompetitors(id, country);
 
   return c.json({
     suggestions: ranked,

@@ -1,8 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
-import {
-  WebStandardStreamableHTTPServerTransport,
-} from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -51,6 +49,8 @@ import {
 } from "@/lib/ai";
 import { AI_LOCALES, type AILocale } from "@/lib/aiLocales";
 import { DESCRIPTION_IDEAL_LEN, SUBTITLE_RANGE, TITLE_MAX } from "@/lib/health";
+import { parseCountryParam } from "@/lib/countryParam";
+import { filterAppDetailByCountry } from "./routes/_lib";
 import type { StorePlatform } from "@/lib/stores/types";
 
 // Ported from the original Next.js route handler (which used a Next-only MCP
@@ -65,6 +65,13 @@ import type { StorePlatform } from "@/lib/stores/types";
 // stateless: a fresh transport+server per POST, and 405 for GET/DELETE).
 
 const platformSchema = z.enum(["IOS", "ANDROID"]);
+
+/** Shared normalization for the optional `country` tool inputs: lowercase
+ * 2-letter code, or undefined when missing/invalid (callers' defaults then
+ * apply). Keeps REST and MCP validating identically. */
+function normalizeCountry(country: string | undefined): string | undefined {
+  return parseCountryParam(country) ?? undefined;
+}
 
 function json(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
@@ -99,7 +106,9 @@ async function discoverKeywordsForLocale(app: BriefableApp, locale: AILocale): P
   const seedText = [localization?.title ?? app.title, localization?.subtitle ?? app.subtitle]
     .filter(Boolean)
     .join(" ");
-  return discoverLocaleKeywords(app.platform, seedText, locale.country, locale.code).catch(() => []);
+  return discoverLocaleKeywords(app.platform, seedText, locale.country, locale.code).catch(
+    () => [],
+  );
 }
 
 /** Builds one locale's copy-localization brief - used directly by
@@ -212,21 +221,25 @@ function registerTools(server: McpServer): void {
     {
       title: "Get app detail",
       description:
-        "Returns full detail for a tracked app: metadata, tracked keywords with rank history, competitors, and latest health report.",
-      inputSchema: { appId: z.string().min(1) },
+        "Returns full detail for a tracked app: metadata, tracked keywords with rank history, competitors, and latest health report. The optional country (lowercase ISO 3166-1 alpha-2) scopes keywords and competitors to that storefront - omit it to get every country mixed, like the REST endpoint.",
+      inputSchema: { appId: z.string().min(1), country: z.string().length(2).optional() },
     },
-    async ({ appId }) => {
+    async ({ appId, country }) => {
+      const c = normalizeCountry(country);
       const app = await db.query.apps.findFirst({
         where: eq(apps.id, appId),
         columns: { posthogApiKey: false },
         with: {
           keywords: { with: { ranks: { orderBy: [desc(keywordRanks.checkedAt)], limit: 10 } } },
-          competitors: { with: { ranks: { orderBy: [desc(competitorRanks.checkedAt)], limit: 10 } } },
+          competitors: {
+            with: { ranks: { orderBy: [desc(competitorRanks.checkedAt)], limit: 10 } },
+          },
           healthReports: { orderBy: [desc(healthReports.createdAt)], limit: 1 },
         },
       });
       if (!app) return errorResult(new Error("App not found"));
-      return json(app);
+      if (!c) return json(app);
+      return json(filterAppDetailByCountry(app, c));
     },
   );
 
@@ -235,12 +248,12 @@ function registerTools(server: McpServer): void {
     {
       title: "Refresh app metadata",
       description:
-        "Re-fetches an app's live store metadata (title, subtitle, description, rating, screenshots, version) and recomputes its health report.",
-      inputSchema: { appId: z.string().min(1) },
+        "Re-fetches an app's live store metadata (title, subtitle, description, rating, screenshots, version) and recomputes its health report. The optional country (lowercase ISO 3166-1 alpha-2) picks the storefront to fetch from; defaults to the app's own home storefront.",
+      inputSchema: { appId: z.string().min(1), country: z.string().length(2).optional() },
     },
-    async ({ appId }) => {
+    async ({ appId, country }) => {
       try {
-        const app = await syncAppMetadata(appId);
+        const app = await syncAppMetadata(appId, normalizeCountry(country));
         return json(app);
       } catch (e) {
         return errorResult(e);
@@ -278,7 +291,7 @@ function registerTools(server: McpServer): void {
     {
       title: "Track a keyword",
       description:
-        "Adds a keyword to track for an app and immediately records its current search rank position (and competitors' positions for that keyword). The optional country (lowercase ISO 3166-1 alpha-2, e.g. \"us\", \"de\", \"ru\") picks the storefront to track in - the storefront decides which language's search results the term competes in, so pass the market the keyword is written for. Defaults to \"us\".",
+        'Adds a keyword to track for an app and immediately records its current search rank position (and competitors\' positions for that keyword). The optional country (lowercase ISO 3166-1 alpha-2, e.g. "us", "de", "ru") picks the storefront to track in - the storefront decides which language\'s search results the term competes in, so pass the market the keyword is written for. Defaults to "us".',
       inputSchema: {
         appId: z.string().min(1),
         term: z.string().min(1),
@@ -319,12 +332,15 @@ function registerTools(server: McpServer): void {
     {
       title: "List tracked keywords",
       description:
-        "Lists an app's tracked keywords with recent rank history. Each keyword carries the storefront (country) its rank is tracked in.",
-      inputSchema: { appId: z.string().min(1) },
+        "Lists an app's tracked keywords with recent rank history. Each keyword carries the storefront (country) its rank is tracked in. The optional country (lowercase ISO 3166-1 alpha-2) filters to that storefront; omit it to list every country.",
+      inputSchema: { appId: z.string().min(1), country: z.string().length(2).optional() },
     },
-    async ({ appId }) => {
+    async ({ appId, country }) => {
+      const c = normalizeCountry(country);
       const keywordsList = await db.query.keywords.findMany({
-        where: eq(keywords.appId, appId),
+        where: c
+          ? and(eq(keywords.appId, appId), eq(keywords.country, c))
+          : eq(keywords.appId, appId),
         with: { ranks: { orderBy: [desc(keywordRanks.checkedAt)], limit: 10 } },
       });
       return json(keywordsList);
@@ -354,12 +370,22 @@ function registerTools(server: McpServer): void {
     {
       title: "Track a competitor",
       description:
-        "Adds a competitor app for comparison. Once added, every future rank check also records that competitor's position for each tracked keyword (competitor spy).",
-      inputSchema: { appId: z.string().min(1), platform: platformSchema, storeId: z.string().min(1) },
+        'Adds a competitor app for comparison. Once added, every future rank check also records that competitor\'s position for each tracked keyword (competitor spy). The optional country (lowercase ISO 3166-1 alpha-2) is the storefront the competitor is compared in - the same store app can be tracked as a competitor in several markets; defaults to "us".',
+      inputSchema: {
+        appId: z.string().min(1),
+        platform: platformSchema,
+        storeId: z.string().min(1),
+        country: z.string().length(2).optional(),
+      },
     },
-    async ({ appId, platform, storeId }) => {
+    async ({ appId, platform, storeId, country }) => {
       try {
-        const competitor = await addCompetitor(appId, platform, storeId);
+        const competitor = await addCompetitor(
+          appId,
+          platform,
+          storeId,
+          normalizeCountry(country) ?? "us",
+        );
         return json(competitor);
       } catch (e) {
         return errorResult(e);
@@ -388,11 +414,16 @@ function registerTools(server: McpServer): void {
     {
       title: "Find winning keywords",
       description:
-        "Generates keyword candidates from the app's and its competitors' titles/subtitles, then scores each by estimated demand (volume), competitiveness (difficulty), and the app's current live rank for that term, using live store search data. Returns the best opportunities not already tracked. Also auto-discovers and starts tracking a few competitor apps found via the same seed terms, if any new ones turn up.",
-      inputSchema: { appId: z.string().min(1), limit: z.number().int().min(1).max(30).optional() },
+        "Generates keyword candidates from the app's and its competitors' titles/subtitles, then scores each by estimated demand (volume), competitiveness (difficulty), and the app's current live rank for that term, using live store search data. Returns the best opportunities not already tracked. Also auto-discovers and starts tracking a few competitor apps found via the same seed terms, if any new ones turn up. The optional country (lowercase ISO 3166-1 alpha-2) is the storefront all of this runs against; defaults to \"us\".",
+      inputSchema: {
+        appId: z.string().min(1),
+        limit: z.number().int().min(1).max(30).optional(),
+        country: z.string().length(2).optional(),
+      },
     },
-    async ({ appId, limit }) => {
+    async ({ appId, limit, country }) => {
       const cap = limit ?? 15;
+      const c = normalizeCountry(country) ?? "us";
       const app = await db.query.apps.findFirst({
         where: eq(apps.id, appId),
         columns: { posthogApiKey: false },
@@ -403,14 +434,16 @@ function registerTools(server: McpServer): void {
       const trackedTerms = new Set(app.keywords.map((k) => k.term));
       const seeds = [
         ...extractSeedTerms(`${app.title ?? ""} ${app.subtitle ?? ""}`, 6),
-        ...app.competitors.flatMap((c) => extractSeedTerms(`${c.title ?? ""} ${c.subtitle ?? ""}`, 4)),
+        ...app.competitors.flatMap((comp) =>
+          extractSeedTerms(`${comp.title ?? ""} ${comp.subtitle ?? ""}`, 4),
+        ),
       ];
       const candidates = expandCandidates(Array.from(new Set(seeds)), cap * 2).filter(
         (term) => !trackedTerms.has(term),
       );
-      const scored = await scoreKeywords(app.platform, candidates.slice(0, cap), app.storeId);
+      const scored = await scoreKeywords(app.platform, candidates.slice(0, cap), app.storeId, c);
       const ranked = scored.sort((a, b) => keywordOpportunityRank(b) - keywordOpportunityRank(a));
-      const newCompetitors = await autoDetectCompetitors(appId);
+      const newCompetitors = await autoDetectCompetitors(appId, c);
       return json({ keywords: ranked, newCompetitors });
     },
   );
@@ -420,12 +453,12 @@ function registerTools(server: McpServer): void {
     {
       title: "Sync store reviews",
       description:
-        "Fetches the app's most recent store reviews and stores any not already saved (safe to re-run - only adds new ones, never duplicates). Run this before get_review_analysis if you want fresh data.",
-      inputSchema: { appId: z.string().min(1) },
+        'Fetches the app\'s most recent store reviews and stores any not already saved (safe to re-run - only adds new ones, never duplicates). Run this before get_review_analysis if you want fresh data. The optional country (lowercase ISO 3166-1 alpha-2) picks the storefront to pull reviews from - reviews are tagged with it, so per-country analysis stays possible; defaults to "us".',
+      inputSchema: { appId: z.string().min(1), country: z.string().length(2).optional() },
     },
-    async ({ appId }) => {
+    async ({ appId, country }) => {
       try {
-        const result = await syncReviews(appId);
+        const result = await syncReviews(appId, normalizeCountry(country));
         return json(result);
       } catch (e) {
         return errorResult(e);
@@ -438,12 +471,12 @@ function registerTools(server: McpServer): void {
     {
       title: "Get review analysis",
       description:
-        "Rating distribution and heuristic positive/negative theme extraction (most-mentioned words) over every review stored for the app, plus a few of the most recent positive and negative reviews. Doesn't hit the store itself - call sync_reviews first for fresh data.",
-      inputSchema: { appId: z.string().min(1) },
+        "Rating distribution and heuristic positive/negative theme extraction (most-mentioned words) over the app's stored reviews, plus a few of the most recent positive and negative reviews. Doesn't hit the store itself - call sync_reviews first for fresh data. The optional country (lowercase ISO 3166-1 alpha-2) aggregates only reviews synced for that storefront; omit it to aggregate every country.",
+      inputSchema: { appId: z.string().min(1), country: z.string().length(2).optional() },
     },
-    async ({ appId }) => {
+    async ({ appId, country }) => {
       try {
-        const analysis = await getReviewAnalysis(appId);
+        const analysis = await getReviewAnalysis(appId, normalizeCountry(country));
         return json(analysis);
       } catch (e) {
         return errorResult(e);
@@ -456,12 +489,12 @@ function registerTools(server: McpServer): void {
     {
       title: "Find keyword gaps from reviews",
       description:
-        "Cross-references words real users repeat in this app's own reviews against its tracked keywords, and scores whichever ones aren't tracked yet (live store search, same volume/difficulty scoring as find_keyword_ideas). Surfaces keyword opportunities no competitor-data-only tool can see, since it's mined from this app's own first-party review text.",
-      inputSchema: { appId: z.string().min(1) },
+        "Cross-references words real users repeat in this app's own reviews against its tracked keywords, and scores whichever ones aren't tracked yet (live store search, same volume/difficulty scoring as find_keyword_ideas). Surfaces keyword opportunities no competitor-data-only tool can see, since it's mined from this app's own first-party review text. The optional country (lowercase ISO 3166-1 alpha-2) both mines that storefront's synced reviews and scores the candidates in that market; defaults to \"us\".",
+      inputSchema: { appId: z.string().min(1), country: z.string().length(2).optional() },
     },
-    async ({ appId }) => {
+    async ({ appId, country }) => {
       try {
-        const gaps = await findReviewKeywordGaps(appId);
+        const gaps = await findReviewKeywordGaps(appId, normalizeCountry(country) ?? "us");
         return json(gaps);
       } catch (e) {
         return errorResult(e);
@@ -520,7 +553,11 @@ function registerTools(server: McpServer): void {
         platform: platformSchema,
         terms: z.array(z.string().min(1)).min(1).max(20),
         country: z.string().length(2).optional(),
-        appId: z.string().min(1).optional().describe("Tracked app id - if given, also returns its rank for each term."),
+        appId: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Tracked app id - if given, also returns its rank for each term."),
       },
     },
     async ({ platform, terms, country, appId }) => {
@@ -547,14 +584,15 @@ function registerTools(server: McpServer): void {
     "get_ai_copy_suggestions",
     {
       title: "Get AI copy suggestions",
-      description:
-        `Rewrites an app's title/subtitle/description for one or more storefront locales, working its tracked keywords and real local search phrases (pulled live from that storefront's own autocomplete) in naturally rather than translating literally. English regional variants (en-gb/en-ca) keep the keywords as-is and only adapt spelling/idiom. Supported locales: ${AI_LOCALES.map((l) => l.code).join(", ")}. Omit \`locales\` to check all of them at once.\n\nIf OPENROUTER_API_KEY is set on the server, OpenRouter writes the copy directly and the result is saved and returned immediately. If it's NOT set, this doesn't fail - each such locale instead comes back with \`needsManualComposition: true\` and a \`brief\`: compose that locale's title/subtitle/description yourself (respecting the brief's limits/instructions) in your own next response, then call save_copy_suggestions with the result to persist it and finish the job - no OPENROUTER_API_KEY or extra API spend required either way.`,
+      description: `Rewrites an app's title/subtitle/description for one or more storefront locales, working its tracked keywords and real local search phrases (pulled live from that storefront's own autocomplete) in naturally rather than translating literally. English regional variants (en-gb/en-ca) keep the keywords as-is and only adapt spelling/idiom. Supported locales: ${AI_LOCALES.map((l) => l.code).join(", ")}. Omit \`locales\` to check all of them at once.\n\nIf OPENROUTER_API_KEY is set on the server, OpenRouter writes the copy directly and the result is saved and returned immediately. If it's NOT set, this doesn't fail - each such locale instead comes back with \`needsManualComposition: true\` and a \`brief\`: compose that locale's title/subtitle/description yourself (respecting the brief's limits/instructions) in your own next response, then call save_copy_suggestions with the result to persist it and finish the job - no OPENROUTER_API_KEY or extra API spend required either way.`,
       inputSchema: {
         appId: z.string().min(1),
         locales: z
           .array(z.string())
           .optional()
-          .describe(`Locale codes to generate for (subset of: ${AI_LOCALES.map((l) => l.code).join(", ")}). Defaults to all.`),
+          .describe(
+            `Locale codes to generate for (subset of: ${AI_LOCALES.map((l) => l.code).join(", ")}). Defaults to all.`,
+          ),
       },
     },
     async ({ appId, locales }) => {
@@ -617,14 +655,15 @@ function registerTools(server: McpServer): void {
     "prepare_copy_localization_brief",
     {
       title: "Prepare an AI copy localization brief (no API key needed)",
-      description:
-        `Returns everything needed to write localized title/subtitle/description copy for an app WITHOUT calling any external LLM - no OPENROUTER_API_KEY required. Use this when you (the calling model) will write the actual copy yourself: read the brief for each requested locale, then compose the rewritten title/subtitle/description directly in your own response, respecting each brief's character limits and localization instructions (English regional variants like en-gb/en-ca keep keywords as-is and only adapt spelling/idiom; other locales adapt keywords into the real local search term instead of translating literally). Supported locales: ${AI_LOCALES.map((l) => l.code).join(", ")}. Omit \`locales\` to get a brief for all of them.`,
+      description: `Returns everything needed to write localized title/subtitle/description copy for an app WITHOUT calling any external LLM - no OPENROUTER_API_KEY required. Use this when you (the calling model) will write the actual copy yourself: read the brief for each requested locale, then compose the rewritten title/subtitle/description directly in your own response, respecting each brief's character limits and localization instructions (English regional variants like en-gb/en-ca keep keywords as-is and only adapt spelling/idiom; other locales adapt keywords into the real local search term instead of translating literally). Supported locales: ${AI_LOCALES.map((l) => l.code).join(", ")}. Omit \`locales\` to get a brief for all of them.`,
       inputSchema: {
         appId: z.string().min(1),
         locales: z
           .array(z.string())
           .optional()
-          .describe(`Locale codes to prepare a brief for (subset of: ${AI_LOCALES.map((l) => l.code).join(", ")}). Defaults to all.`),
+          .describe(
+            `Locale codes to prepare a brief for (subset of: ${AI_LOCALES.map((l) => l.code).join(", ")}). Defaults to all.`,
+          ),
       },
     },
     async ({ appId, locales }) => {
@@ -674,11 +713,20 @@ function registerTools(server: McpServer): void {
       });
       if (!app) return errorResult(new Error("App not found"));
       if (!AI_LOCALES.some((l) => l.code === locale)) {
-        return errorResult(new Error(`Unsupported locale "${locale}" (expected one of: ${AI_LOCALES.map((l) => l.code).join(", ")})`));
+        return errorResult(
+          new Error(
+            `Unsupported locale "${locale}" (expected one of: ${AI_LOCALES.map((l) => l.code).join(", ")})`,
+          ),
+        );
       }
 
       const suggestions: CopySuggestion[] = [
-        { field: "title", current: app.title ?? "", suggestion: title.suggestion, rationale: title.rationale },
+        {
+          field: "title",
+          current: app.title ?? "",
+          suggestion: title.suggestion,
+          rationale: title.rationale,
+        },
         {
           field: "subtitle",
           current: app.subtitle ?? "",
@@ -703,7 +751,7 @@ function registerTools(server: McpServer): void {
     {
       title: "Run rank tracking now",
       description:
-        "Runs a full tracking pass immediately for every app: refreshes metadata/health, and records a new keyword + competitor rank position for today. Normally this runs once a day on a schedule.",
+        "Runs a full tracking pass immediately for every app: refreshes metadata/health, and records a new keyword + competitor rank position for today. Each app's metadata and reviews sync in its own home storefront, and each keyword is checked in the storefront it's tracked for. Normally this runs once a day on a schedule.",
       inputSchema: {},
     },
     async () => {
@@ -798,9 +846,7 @@ app.post("/", async (c) => {
 // standalone SSE stream to open - 405, the same JSON-RPC error body the old
 // adapter returned for GET on the streamable endpoint (and the
 // SDK's own "method not allowed" shape).
-app.get("/", (_c) =>
-  jsonRpcError(405, -32000, "Method not allowed."),
-);
+app.get("/", (_c) => jsonRpcError(405, -32000, "Method not allowed."));
 
 // DELETE: session termination per the SDK pattern - the transport validates
 // the session id, fires onsessionclosed, closes itself (which closes the

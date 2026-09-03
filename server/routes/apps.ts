@@ -10,8 +10,9 @@ import {
   keywords,
 } from "@/db/schema";
 import { createApp, createAppWithProgress } from "@/lib/appService";
+import { parseCountryParam, resolveCountry } from "@/lib/countryParam";
 import type { StorePlatform } from "@/lib/stores/types";
-import { APP_RETURNING_COLUMNS, isUniqueViolation } from "./_lib";
+import { APP_RETURNING_COLUMNS, filterAppDetailByCountry, isUniqueViolation } from "./_lib";
 import keywordsRoutes from "./apps.keywords";
 import competitorsRoutes from "./apps.competitors";
 import healthRoutes from "./apps.health";
@@ -36,7 +37,10 @@ appsApp.get("/", async (c) => {
   // reproduced with two grouped counts and explicit `_count` objects.
   const [keywordCounts, competitorCounts] = await Promise.all([
     db.select({ appId: keywords.appId, n: count() }).from(keywords).groupBy(keywords.appId),
-    db.select({ appId: competitors.appId, n: count() }).from(competitors).groupBy(competitors.appId),
+    db
+      .select({ appId: competitors.appId, n: count() })
+      .from(competitors)
+      .groupBy(competitors.appId),
   ]);
   const keywordCountByApp = new Map(keywordCounts.map((r) => [r.appId, Number(r.n)]));
   const competitorCountByApp = new Map(competitorCounts.map((r) => [r.appId, Number(r.n)]));
@@ -57,7 +61,9 @@ appsApp.post("/", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const platform = body.platform as StorePlatform;
   const storeId = body.storeId as string;
-  const country = (body.country as string) ?? "us";
+  // Home storefront for the new app - normalized to a valid lowercase code,
+  // falling back to "us" (pre-country clients keep working unchanged).
+  const country = resolveCountry(typeof body.country === "string" ? body.country : null, "us");
 
   if (!platform || !storeId) {
     return c.json({ error: "platform and storeId are required" }, 400);
@@ -83,7 +89,7 @@ appsApp.post("/stream", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const platform = body.platform as StorePlatform;
   const storeId = body.storeId as string;
-  const country = (body.country as string) ?? "us";
+  const country = resolveCountry(typeof body.country === "string" ? body.country : null, "us");
 
   if (!platform || !storeId) {
     return c.json({ error: "platform and storeId are required" }, 400);
@@ -124,6 +130,10 @@ appsApp.post("/stream", async (c) => {
 
 appsApp.get("/:id", async (c) => {
   const id = c.req.param("id");
+  // Optional storefront filter (?country=de, lowercase ISO 3166-1 alpha-2):
+  // keywords and competitors come back for that market only. Absent/invalid
+  // = no filter (all countries mixed, the pre-selector behavior).
+  const country = parseCountryParam(c.req.query("country"));
   const app = await db.query.apps.findFirst({
     where: eq(apps.id, id),
     columns: { posthogApiKey: false },
@@ -141,7 +151,10 @@ appsApp.get("/:id", async (c) => {
   });
 
   if (!app) return c.json({ error: "Not found" }, 404);
-  return c.json({ app });
+  // Country-scoped view (shared with MCP get_app): keywords and competitors
+  // of that storefront only, competitor ranks trimmed to those keywords.
+  if (!country) return c.json({ app });
+  return c.json({ app: filterAppDetailByCountry(app, country) });
 });
 
 appsApp.patch("/:id", async (c) => {

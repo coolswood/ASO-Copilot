@@ -14,22 +14,23 @@
 
 Пока доки не созданы — в столбце «Ключевые файлы» стартовые точки; при создании дока заменяй «—» ссылкой.
 
-| Фича                                  | Док | Ключевые файлы                                                                                                                      |
-| ------------------------------------- | --- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Дашборд и управление приложениями     | —   | `src/pages/DashboardPage.tsx`, `server/routes/apps.ts`, `server/routes/apps.sync.ts`                                                |
-| Карточка приложения (табы, секции)    | —   | `src/pages/AppDetailPage.tsx`, `src/components/AppTabs.tsx`                                                                         |
-| Трекинг ключевых слов (по сторфронту) | —   | `server/routes/track.ts`, `server/routes/apps.keywords.ts`                                                                          |
-| Health score                          | —   | `src/lib/health.ts`, `server/routes/apps.health.ts`, `src/components/HealthReportPanel.tsx`                                         |
-| Keyword research (winning keywords)   | —   | `src/lib/research.ts`, `server/routes/keyword-ideas.ts`, `src/components/ResearchSection.tsx`                                       |
-| Global Reach (карта по странам)       | —   | `src/components/GlobalReachSection.tsx`, `src/components/WorldMap.tsx`, `keywordCountryRanks` в схеме                               |
-| Отзывы и их анализ                    | —   | `server/routes/apps.reviews.ts`, `src/lib/reviewAnalysis.ts`, `src/components/ReviewsSection.tsx`                                   |
-| Локализации и их аудит                | —   | `server/routes/apps.localizations.ts`, `src/lib/localizationSync.ts`, `src/lib/localizationAudit.ts`, `src/lib/localeCandidates.ts` |
-| AI Copy Suggestions                   | —   | `src/lib/ai.ts`, `src/lib/aiLocales.ts`, `server/routes/apps.ai-suggestions.ts`, `src/components/AICopySuggestions.tsx`             |
-| Конкуренты                            | —   | `server/routes/apps.competitors.ts`, `src/components/CompetitorsSection.tsx`                                                        |
-| Product health (PostHog overlay)      | —   | `src/lib/posthogIntegration.ts`, `server/routes/apps.posthog.ts`, `src/components/ProductHealthChart.tsx`                           |
-| Поиск по сторам                       | —   | `server/routes/search.ts`, `src/pages/SearchPage.tsx`, `src/pages/NewAppPage.tsx`                                                   |
-| MCP-сервер                            | —   | `server/mcp.ts`                                                                                                                     |
-| Общая логика REST + MCP               | —   | `src/lib/appService.ts`                                                                                                             |
+| Фича                                    | Док                                                   | Ключевые файлы                                                                                                                      |
+| --------------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Дашборд и управление приложениями       | —                                                     | `src/pages/DashboardPage.tsx`, `server/routes/apps.ts`, `server/routes/apps.sync.ts`                                                |
+| Карточка приложения (табы, секции)      | —                                                     | `src/pages/AppDetailPage.tsx`, `src/components/AppTabs.tsx`                                                                         |
+| Глобальный селектор страны (storefront) | [country-selector.md](./features/country-selector.md) | `src/components/CountrySelect.tsx`, `src/lib/countryParam.ts`, `src/pages/AppDetailPage.tsx`                                        |
+| Трекинг ключевых слов (по сторфронту)   | —                                                     | `server/routes/track.ts`, `server/routes/apps.keywords.ts`                                                                          |
+| Health score                            | —                                                     | `src/lib/health.ts`, `server/routes/apps.health.ts`, `src/components/HealthReportPanel.tsx`                                         |
+| Keyword research (winning keywords)     | —                                                     | `src/lib/research.ts`, `server/routes/keyword-ideas.ts`, `src/components/ResearchSection.tsx`                                       |
+| Global Reach (карта по странам)         | —                                                     | `src/components/GlobalReachSection.tsx`, `src/components/WorldMap.tsx`, `keywordCountryRanks` в схеме                               |
+| Отзывы и их анализ                      | —                                                     | `server/routes/apps.reviews.ts`, `src/lib/reviewAnalysis.ts`, `src/components/ReviewsSection.tsx`                                   |
+| Локализации и их аудит                  | —                                                     | `server/routes/apps.localizations.ts`, `src/lib/localizationSync.ts`, `src/lib/localizationAudit.ts`, `src/lib/localeCandidates.ts` |
+| AI Copy Suggestions                     | —                                                     | `src/lib/ai.ts`, `src/lib/aiLocales.ts`, `server/routes/apps.ai-suggestions.ts`, `src/components/AICopySuggestions.tsx`             |
+| Конкуренты                              | —                                                     | `server/routes/apps.competitors.ts`, `src/components/CompetitorsSection.tsx`                                                        |
+| Product health (PostHog overlay)        | —                                                     | `src/lib/posthogIntegration.ts`, `server/routes/apps.posthog.ts`, `src/components/ProductHealthChart.tsx`                           |
+| Поиск по сторам                         | —                                                     | `server/routes/search.ts`, `src/pages/SearchPage.tsx`, `src/pages/NewAppPage.tsx`                                                   |
+| MCP-сервер                              | —                                                     | `server/mcp.ts`                                                                                                                     |
+| Общая логика REST + MCP                 | —                                                     | `src/lib/appService.ts`                                                                                                             |
 
 <!-- Добавляй новые строки сюда по мере создания фич. -->
 

@@ -7,7 +7,14 @@ import { healthScoreTier } from "@/lib/health";
 import type { StorePlatform } from "@/lib/stores/types";
 
 type StageEvent =
-  | { stage: "listing"; name: string; iconUrl: string | null; developer: string | null; subtitle: string | null; category: string | null }
+  | {
+      stage: "listing";
+      name: string;
+      iconUrl: string | null;
+      developer: string | null;
+      subtitle: string | null;
+      category: string | null;
+    }
   | { stage: "app_created"; appId: string }
   | { stage: "keyword"; term: string; rank: number | null }
   | { stage: "competitor"; name: string; iconUrl: string | null }
@@ -25,12 +32,23 @@ const STEPS = [
 ] as const;
 
 function StepStatus({ status }: { status: "pending" | "active" | "done" }) {
-  if (status === "done") return <Check className="h-4 w-4 shrink-0" style={{ color: "var(--success)" }} />;
+  if (status === "done")
+    return <Check className="h-4 w-4 shrink-0" style={{ color: "var(--success)" }} />;
   if (status === "active") return <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent" />;
   return <span className="h-4 w-4 shrink-0 rounded-full border border-border" />;
 }
 
-export default function AddAppProgress({ hit, platform }: { hit: SearchHit; platform: StorePlatform }) {
+export default function AddAppProgress({
+  hit,
+  platform,
+  country = "us",
+}: {
+  hit: SearchHit;
+  platform: StorePlatform;
+  /** Home storefront for the new app - persisted on the app row and used for
+   * the initial keyword/competitor detection. */
+  country?: string;
+}) {
   const navigate = useNavigate();
   const [stageIdx, setStageIdx] = useState(0);
   const [subtitle, setSubtitle] = useState<string | null>(null);
@@ -54,7 +72,8 @@ export default function AddAppProgress({ hit, platform }: { hit: SearchHit; plat
       const idx = STAGE_ORDER.indexOf(event.stage);
       if (idx !== -1) setStageIdx((prev) => Math.max(prev, idx));
       if (event.stage === "listing") setSubtitle(event.subtitle);
-      if (event.stage === "keyword") setKeywords((prev) => [...prev, { term: event.term, rank: event.rank }]);
+      if (event.stage === "keyword")
+        setKeywords((prev) => [...prev, { term: event.term, rank: event.rank }]);
       if (event.stage === "competitor") {
         setCompetitors((prev) => [...prev, { name: event.name, iconUrl: event.iconUrl }]);
       }
@@ -70,7 +89,7 @@ export default function AddAppProgress({ hit, platform }: { hit: SearchHit; plat
         const res = await fetch("/api/apps/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ platform, storeId: hit.storeId }),
+          body: JSON.stringify({ platform, storeId: hit.storeId, country }),
         });
         if (!res.body) throw new Error("No response body");
         const reader = res.body.getReader();
@@ -155,7 +174,11 @@ export default function AddAppProgress({ hit, platform }: { hit: SearchHit; plat
                       style={{ animationDelay: `${idx * 50}ms` }}
                     >
                       {k.term}
-                      {k.rank !== null && <span className="font-medium" style={{ color: "var(--success)" }}>#{k.rank}</span>}
+                      {k.rank !== null && (
+                        <span className="font-medium" style={{ color: "var(--success)" }}>
+                          #{k.rank}
+                        </span>
+                      )}
                     </span>
                   ))}
                 </div>
@@ -179,7 +202,10 @@ export default function AddAppProgress({ hit, platform }: { hit: SearchHit; plat
               {step.key === "health" && healthScore !== null && (
                 <div className="animate-fade-in-up mt-2 text-sm">
                   Health score:{" "}
-                  <span className="font-semibold" style={{ color: healthScoreTier(healthScore).color }}>
+                  <span
+                    className="font-semibold"
+                    style={{ color: healthScoreTier(healthScore).color }}
+                  >
                     {healthScore}
                   </span>
                 </div>
@@ -192,7 +218,10 @@ export default function AddAppProgress({ hit, platform }: { hit: SearchHit; plat
       {error && <div className="text-sm text-red-500 animate-fade-in-up">{error}</div>}
 
       {finished && appId && (
-        <div className="animate-fade-in-up flex items-center justify-between rounded-xl border border-border p-4" style={{ background: "var(--success-soft)" }}>
+        <div
+          className="animate-fade-in-up flex items-center justify-between rounded-xl border border-border p-4"
+          style={{ background: "var(--success-soft)" }}
+        >
           <span className="text-sm font-medium" style={{ color: "var(--success)" }}>
             All done! Taking you to your dashboard...
           </span>

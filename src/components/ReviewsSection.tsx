@@ -40,13 +40,24 @@ function Stars({ rating }: { rating: number | null }) {
   return (
     <span className="inline-flex items-center gap-0.5 text-warning">
       {Array.from({ length: 5 }).map((_, i) => (
-        <Star key={i} className="h-3 w-3" fill={i < n ? "currentColor" : "none"} strokeWidth={1.5} />
+        <Star
+          key={i}
+          className="h-3 w-3"
+          fill={i < n ? "currentColor" : "none"}
+          strokeWidth={1.5}
+        />
       ))}
     </span>
   );
 }
 
-function DistributionBar({ distribution, total }: { distribution: RatingDistribution; total: number }) {
+function DistributionBar({
+  distribution,
+  total,
+}: {
+  distribution: RatingDistribution;
+  total: number;
+}) {
   return (
     <div className="space-y-1.5">
       {([5, 4, 3, 2, 1] as const).map((star) => {
@@ -100,7 +111,9 @@ function ReviewCard({ review }: { review: ReviewSample }) {
         <Stars rating={review.rating} />
         {date && <span className="text-xs text-muted">{date}</span>}
       </div>
-      {review.title && <div className="text-sm font-medium mb-0.5 line-clamp-1">{review.title}</div>}
+      {review.title && (
+        <div className="text-sm font-medium mb-0.5 line-clamp-1">{review.title}</div>
+      )}
       {review.text && <p className="text-xs text-muted line-clamp-3">{review.text}</p>}
       {review.authorName && <div className="mt-1.5 text-xs text-muted">— {review.authorName}</div>}
     </div>
@@ -114,7 +127,7 @@ interface KeywordGap {
   difficulty: number;
 }
 
-function KeywordGapsPanel({ appId }: { appId: string }) {
+function KeywordGapsPanel({ appId, country }: { appId: string; country: string }) {
   const [gaps, setGaps] = useState<KeywordGap[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [tracked, setTracked] = useState<Set<string>>(new Set());
@@ -124,7 +137,7 @@ function KeywordGapsPanel({ appId }: { appId: string }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/apps/${appId}/reviews/keyword-gaps`);
+      const res = await fetch(`/api/apps/${appId}/reviews/keyword-gaps?country=${country}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to analyze reviews");
       setGaps(data.gaps);
@@ -141,7 +154,7 @@ function KeywordGapsPanel({ appId }: { appId: string }) {
       const res = await fetch(`/api/apps/${appId}/keywords`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ term }),
+        body: JSON.stringify({ term, country }),
       });
       if (!res.ok) throw new Error();
     } catch {
@@ -177,14 +190,21 @@ function KeywordGapsPanel({ appId }: { appId: string }) {
       {loading && (
         <div className="space-y-2">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-9 rounded-lg bg-border animate-pulse" style={{ animationDelay: `${i * 80}ms` }} />
+            <div
+              key={i}
+              className="h-9 rounded-lg bg-border animate-pulse"
+              style={{ animationDelay: `${i * 80}ms` }}
+            />
           ))}
         </div>
       )}
 
-      {!loading && gaps !== null && (
-        gaps.length === 0 ? (
-          <div className="text-xs text-muted">No untracked keyword gaps found in your reviews right now.</div>
+      {!loading &&
+        gaps !== null &&
+        (gaps.length === 0 ? (
+          <div className="text-xs text-muted">
+            No untracked keyword gaps found in your reviews right now.
+          </div>
         ) : (
           <div className="space-y-1.5">
             {gaps.map((g) => (
@@ -208,29 +228,33 @@ function KeywordGapsPanel({ appId }: { appId: string }) {
               </div>
             ))}
           </div>
-        )
-      )}
+        ))}
     </div>
   );
 }
 
-export default function ReviewsSection({ appId }: { appId: string }) {
+export default function ReviewsSection({ appId, country }: { appId: string; country: string }) {
   const [analysis, setAnalysis] = useState<ReviewAnalysis | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`/api/apps/${appId}/reviews`)
+    setAnalysis(null);
+    fetch(`/api/apps/${appId}/reviews?country=${country}`)
       .then((res) => res.json())
       .then((data) => setAnalysis(data.analysis ?? null))
       .catch(() => setError("Failed to load reviews"));
-  }, [appId]);
+  }, [appId, country]);
 
   async function syncReviews() {
     setSyncing(true);
     setError(null);
     try {
-      const res = await fetch(`/api/apps/${appId}/reviews`, { method: "POST" });
+      const res = await fetch(`/api/apps/${appId}/reviews`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ country }),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Sync failed");
       setAnalysis(data.analysis);
@@ -263,17 +287,25 @@ export default function ReviewsSection({ appId }: { appId: string }) {
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-border/50">
             <MessageSquareOff className="h-5 w-5 text-muted" />
           </div>
-          <div className="text-sm text-muted">No reviews synced yet. Click &quot;Sync reviews&quot; to pull the latest ones.</div>
+          <div className="text-sm text-muted">
+            No reviews synced for the {country.toUpperCase()} storefront yet. Click &quot;Sync
+            reviews&quot; to pull the latest ones.
+          </div>
         </div>
       ) : (
         <div className="animate-fade-in-up space-y-6">
           <div className="grid gap-4 sm:grid-cols-[auto_1fr] rounded-xl border border-border bg-card p-5">
             <div className="flex flex-col items-center justify-center gap-1 sm:pr-6 sm:border-r sm:border-border">
-              <div className="text-3xl font-semibold tabular-nums">{analysis.averageRating ?? "—"}</div>
+              <div className="text-3xl font-semibold tabular-nums">
+                {analysis.averageRating ?? "—"}
+              </div>
               <Stars rating={analysis.averageRating} />
               <div className="text-xs text-muted">{analysis.totalReviews} reviews</div>
             </div>
-            <DistributionBar distribution={analysis.ratingDistribution} total={analysis.totalReviews} />
+            <DistributionBar
+              distribution={analysis.ratingDistribution}
+              total={analysis.totalReviews}
+            />
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -287,7 +319,7 @@ export default function ReviewsSection({ appId }: { appId: string }) {
             </div>
           </div>
 
-          <KeywordGapsPanel appId={appId} />
+          <KeywordGapsPanel appId={appId} country={country} />
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">

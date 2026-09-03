@@ -4,9 +4,7 @@ import { SiAppstore, SiGoogleplay } from "react-icons/si";
 import RankSparkline from "./RankSparkline";
 import RankHistoryChart from "./RankHistoryChart";
 import KeywordsOverviewChart from "./KeywordsOverviewChart";
-import { CountryChip, storefrontLabel } from "./countryShared";
 import { appStoreSearchUrl, playStoreSearchUrl } from "@/lib/storeLinks";
-import { SCAN_COUNTRIES } from "@/lib/countries";
 import type { StorePlatform } from "@/lib/stores/types";
 
 function RankDelta({ latest, previous }: { latest: number | null; previous: number | null }) {
@@ -71,25 +69,31 @@ function buildKeywordField(terms: string[], limit?: number): KeywordField {
     included.push(term);
     length = nextLength;
   }
-  return { text: included.join(","), includedCount: included.length, omittedCount: unique.length - included.length };
+  return {
+    text: included.join(","),
+    includedCount: included.length,
+    omittedCount: unique.length - included.length,
+  };
 }
 
 export default function KeywordsSection({
   appId,
   platform,
+  country,
   keywords,
   onChanged,
 }: {
   appId: string;
   platform: StorePlatform;
+  /** Storefront resolved by the global selector - new keywords are tracked
+   * in it, and `keywords` arrive pre-filtered to it by the server. */
+  country: string;
   keywords: KeywordWithRanks[];
   /** Re-fetches the app after keyword mutations (was router.refresh()
    * against the server component in the Next.js app). */
   onChanged?: () => void;
 }) {
   const [term, setTerm] = useState("");
-  const [newCountry, setNewCountry] = useState("us");
-  const [countryFilter, setCountryFilter] = useState("");
   const [adding, setAdding] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,18 +101,12 @@ export default function KeywordsSection({
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Storefronts actually in use by this app's keywords, in a stable order -
-  // drives the filter dropdown so it never offers a country with no keywords.
-  const trackedCountries = Array.from(new Set(keywords.map((k) => k.country))).sort();
-  const filtered = countryFilter ? keywords.filter((k) => k.country === countryFilter) : keywords;
-
   async function copyKeywords() {
     const limit = platform === "IOS" ? APPLE_KEYWORDS_LIMIT : undefined;
-    // Operates on the visible (filtered) set only: the App Store Connect
-    // Keywords field is per-locale, so joining terms from different storefronts
-    // into one list would produce a field nobody can paste anywhere.
+    // All rows belong to the globally selected storefront - exactly the
+    // per-locale list the App Store Connect Keywords field expects.
     const field = buildKeywordField(
-      filtered.map((k) => k.term),
+      keywords.map((k) => k.term),
       limit,
     );
     try {
@@ -130,7 +128,11 @@ export default function KeywordsSection({
     setDetecting(true);
     setError(null);
     try {
-      const res = await fetch(`/api/apps/${appId}/keywords/auto-detect`, { method: "POST" });
+      const res = await fetch(`/api/apps/${appId}/keywords/auto-detect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ country }),
+      });
       if (!res.ok) throw new Error("Failed to auto-detect keywords");
       onChanged?.();
     } catch (e) {
@@ -148,7 +150,7 @@ export default function KeywordsSection({
       const res = await fetch(`/api/apps/${appId}/keywords`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ term, country: newCountry }),
+        body: JSON.stringify({ term, country }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to add keyword");
@@ -176,22 +178,10 @@ export default function KeywordsSection({
           placeholder="Add a keyword to track..."
           className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm transition-colors focus:border-accent"
         />
-        <select
-          value={newCountry}
-          onChange={(e) => setNewCountry(e.target.value)}
-          title="Storefront to track the keyword in - the storefront decides which language's search results you compete in"
-          aria-label="Storefront country for the new keyword"
-          className="shrink-0 rounded-lg border border-border bg-card px-2 py-2 text-sm text-muted transition-colors focus:border-accent"
-        >
-          {SCAN_COUNTRIES.map((country) => (
-            <option key={country} value={country}>
-              {storefrontLabel(country)} ({country})
-            </option>
-          ))}
-        </select>
         <button
           onClick={addKeyword}
           disabled={adding}
+          title={`Track the keyword in the ${country} storefront (switch the market in the header above)`}
           className="rounded-lg bg-accent text-accent-foreground px-4 py-2 text-sm font-medium shadow-sm hover:shadow-md hover:-translate-y-px active:translate-y-0 disabled:opacity-50 disabled:translate-y-0 disabled:shadow-none"
         >
           {adding ? "Adding..." : "Track"}
@@ -223,28 +213,9 @@ export default function KeywordsSection({
       {copyStatus && <div className="text-xs text-muted animate-fade-in-up">{copyStatus}</div>}
       {error && <div className="text-sm text-red-500 animate-fade-in-up">{error}</div>}
 
-      {trackedCountries.length > 1 && (
-        <div className="flex items-center gap-2 text-sm animate-fade-in-up">
-          <span className="text-muted text-xs">Storefront:</span>
-          <select
-            value={countryFilter}
-            onChange={(e) => setCountryFilter(e.target.value)}
-            aria-label="Filter keywords by storefront"
-            className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm transition-colors focus:border-accent"
-          >
-            <option value="">All ({keywords.length})</option>
-            {trackedCountries.map((country) => (
-              <option key={country} value={country}>
-                {storefrontLabel(country)} ({country}) - {keywords.filter((k) => k.country === country).length}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      {filtered.length > 1 && (
+      {keywords.length > 1 && (
         <div className="animate-fade-in-up">
-          <KeywordsOverviewChart keywords={filtered} />
+          <KeywordsOverviewChart keywords={keywords} />
         </div>
       )}
 
@@ -254,11 +225,16 @@ export default function KeywordsSection({
             <Tags className="h-5 w-5 text-muted" />
           </div>
           <div className="text-sm text-muted max-w-sm">
-            No keywords tracked yet. Add one above, or hit{" "}
-            <button onClick={autoDetect} className="text-accent font-medium hover:underline" disabled={detecting}>
+            No keywords tracked in this storefront yet. Add one above, or hit{" "}
+            <button
+              onClick={autoDetect}
+              className="text-accent font-medium hover:underline"
+              disabled={detecting}
+            >
               Auto-detect
             </button>{" "}
-            to pull candidates straight from your title and subtitle.
+            to pull candidates straight from your title and subtitle. Switch the market in the
+            header to see other storefronts.
           </div>
         </div>
       ) : (
@@ -273,7 +249,7 @@ export default function KeywordsSection({
               </tr>
             </thead>
             <tbody>
-              {filtered.map((k, i) => {
+              {keywords.map((k, i) => {
                 const chronological = [...k.ranks].reverse();
                 const latest = k.ranks[0]?.position ?? null;
                 const previous = k.ranks[1]?.position ?? null;
@@ -287,9 +263,8 @@ export default function KeywordsSection({
                       <td className="p-3">
                         <div className="flex items-center gap-2">
                           <span className="font-medium">{k.term}</span>
-                          <CountryChip country={k.country} />
                           <a
-                            href={appStoreSearchUrl(k.term)}
+                            href={appStoreSearchUrl(k.term, k.country)}
                             target="_blank"
                             rel="noreferrer"
                             title="Search on the App Store"

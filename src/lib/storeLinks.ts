@@ -3,8 +3,8 @@
 // Store/Google Play" (KeywordsSection, ResearchSection, the /search page,
 // CompetitorsSection). Previously copy-pasted verbatim into each of those.
 
-export function appStoreSearchUrl(term: string): string {
-  return `https://apps.apple.com/us/search?term=${encodeURIComponent(term)}`;
+export function appStoreSearchUrl(term: string, country = "us"): string {
+  return `https://apps.apple.com/${country}/search?term=${encodeURIComponent(term)}`;
 }
 
 export function playStoreSearchUrl(term: string): string {

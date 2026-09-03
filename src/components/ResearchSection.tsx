@@ -17,7 +17,17 @@ interface NewCompetitor {
   iconUrl: string | null;
 }
 
-export default function ResearchSection({ appId, onChanged }: { appId: string; onChanged?: () => void }) {
+export default function ResearchSection({
+  appId,
+  country,
+  onChanged,
+}: {
+  appId: string;
+  /** Storefront resolved by the global selector - candidates are generated,
+   * scored and tracked for this market. */
+  country: string;
+  onChanged?: () => void;
+}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null);
@@ -28,7 +38,7 @@ export default function ResearchSection({ appId, onChanged }: { appId: string; o
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/apps/${appId}/research`);
+      const res = await fetch(`/api/apps/${appId}/research?country=${country}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Research failed");
       setSuggestions(data.suggestions);
@@ -47,7 +57,7 @@ export default function ResearchSection({ appId, onChanged }: { appId: string; o
       const res = await fetch(`/api/apps/${appId}/keywords`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ term }),
+        body: JSON.stringify({ term, country }),
       });
       if (res.ok) {
         setSuggestions((prev) => prev?.filter((s) => s.term !== term) ?? null);
@@ -74,8 +84,9 @@ export default function ResearchSection({ appId, onChanged }: { appId: string; o
           {loading ? "Analyzing store data..." : "Find winning keywords"}
         </button>
         <span className="text-xs text-muted">
-          Derives candidates from your title/subtitle and competitors, then estimates
-          demand and competitiveness from live store search results.
+          Derives candidates from your title/subtitle and competitors for the{" "}
+          {country.toUpperCase()} storefront, then estimates demand and competitiveness from live
+          store search results.
         </span>
       </div>
 
@@ -146,8 +157,9 @@ export default function ResearchSection({ appId, onChanged }: { appId: string; o
         </div>
       )}
 
-      {!loading && suggestions && (
-        suggestions.length === 0 ? (
+      {!loading &&
+        suggestions &&
+        (suggestions.length === 0 ? (
           <div className="animate-fade-in-up flex flex-col items-center gap-2 py-8 text-center">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-border/50">
               <SearchX className="h-5 w-5 text-muted" />
@@ -177,7 +189,7 @@ export default function ResearchSection({ appId, onChanged }: { appId: string; o
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{s.term}</span>
                         <a
-                          href={appStoreSearchUrl(s.term)}
+                          href={appStoreSearchUrl(s.term, country)}
                           target="_blank"
                           rel="noreferrer"
                           title="Search on the App Store"
@@ -204,7 +216,9 @@ export default function ResearchSection({ appId, onChanged }: { appId: string; o
                     <td className="p-3">
                       <span style={{ color: metricColor(s.difficulty, true) }}>{s.difficulty}</span>
                     </td>
-                    <td className="p-3 text-muted">{s.rank !== null ? `#${s.rank}` : "Not ranked"}</td>
+                    <td className="p-3 text-muted">
+                      {s.rank !== null ? `#${s.rank}` : "Not ranked"}
+                    </td>
                     <td className="p-3 text-right">
                       <button
                         onClick={() => trackTerm(s.term)}
@@ -219,8 +233,7 @@ export default function ResearchSection({ appId, onChanged }: { appId: string; o
               </tbody>
             </table>
           </div>
-        )
-      )}
+        ))}
     </div>
   );
 }

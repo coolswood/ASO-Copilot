@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { keywordRanks, keywords } from "@/db/schema";
 import {
@@ -9,14 +9,19 @@ import {
   recomputeHealth,
   runGlobalScan,
 } from "@/lib/appService";
+import { parseCountryParam, resolveCountry } from "@/lib/countryParam";
 import { isUniqueViolation } from "./_lib";
 
 const keywordsRoutes = new Hono();
 
 keywordsRoutes.get("/", async (c) => {
   const id = c.req.param("id")!;
+  // Optional storefront filter - absent = all countries mixed.
+  const country = parseCountryParam(c.req.query("country"));
   const rows = await db.query.keywords.findMany({
-    where: eq(keywords.appId, id),
+    where: country
+      ? and(eq(keywords.appId, id), eq(keywords.country, country))
+      : eq(keywords.appId, id),
     with: { ranks: { orderBy: [desc(keywordRanks.checkedAt)], limit: 30 } },
     orderBy: [desc(keywords.createdAt)],
   });
@@ -31,8 +36,7 @@ keywordsRoutes.post("/", async (c) => {
   // Storefront to track the term in (lowercase ISO 3166-1 alpha-2). Anything
   // that isn't a 2-letter code silently falls back to the default ("us") so
   // pre-country clients keep working unchanged.
-  const rawCountry = typeof body.country === "string" ? body.country.trim().toLowerCase() : "";
-  const country = /^[a-z]{2}$/.test(rawCountry) ? rawCountry : "us";
+  const country = resolveCountry(typeof body.country === "string" ? body.country : null, "us");
 
   try {
     const keyword = await addKeyword(id, term, country);
@@ -48,13 +52,20 @@ keywordsRoutes.post("/", async (c) => {
 
 keywordsRoutes.post("/auto-detect", async (c) => {
   const id = c.req.param("id")!;
-  const added = await autoDetectKeywords(id);
+  // Same country contract as POST / - the detected keywords are tracked in
+  // the given storefront (defaults to "us"), matching the MCP counterpart.
+  const body = await c.req.json().catch(() => ({}));
+  const country = resolveCountry(typeof body.country === "string" ? body.country : null, "us");
+  const added = await autoDetectKeywords(id, country);
   return c.json({ added });
 });
 
 keywordsRoutes.delete("/:keywordId", async (c) => {
   const { id, keywordId } = { id: c.req.param("id")!, keywordId: c.req.param("keywordId")! };
-  const deleted = await db.delete(keywords).where(eq(keywords.id, keywordId)).returning({ id: keywords.id });
+  const deleted = await db
+    .delete(keywords)
+    .where(eq(keywords.id, keywordId))
+    .returning({ id: keywords.id });
   // Prisma's delete() throws (500) when the row doesn't exist - keep that.
   if (deleted.length === 0) throw new Error(`Keyword ${keywordId} not found`);
   await recomputeHealth(id);

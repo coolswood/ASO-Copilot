@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Users } from "lucide-react";
 import AppSearchPicker, { SearchHit } from "./AppSearchPicker";
 import AppIcon from "./AppIcon";
-import { CountryChip } from "./countryShared";
 import { appStoreSearchUrl, playStoreListingUrl } from "@/lib/storeLinks";
 import type { StorePlatform } from "@/lib/stores/types";
 
@@ -32,19 +31,28 @@ function latestByKeyword(ranks: CompetitorRank[]): Map<string, CompetitorRank> {
 
 // iOS falls back to an exact-name App Store search rather than a direct
 // listing link - see playStoreListingUrl's doc comment for why.
-function competitorUrl(platform: StorePlatform, storeId: string, name: string): string {
-  return platform === "ANDROID" ? playStoreListingUrl(storeId) : appStoreSearchUrl(name);
+function competitorUrl(
+  platform: StorePlatform,
+  storeId: string,
+  name: string,
+  country: string,
+): string {
+  return platform === "ANDROID" ? playStoreListingUrl(storeId) : appStoreSearchUrl(name, country);
 }
 
 export default function CompetitorsSection({
   appId,
   platform,
+  country,
   competitors,
   keywords,
   onChanged,
 }: {
   appId: string;
   platform: StorePlatform;
+  /** Storefront resolved by the global selector - new competitors are added
+   * for this market, and `keywords` columns are pre-filtered to it. */
+  country: string;
   competitors: CompetitorWithRanks[];
   keywords: { id: string; term: string; country: string }[];
   /** Re-fetches the app after competitor mutations (was router.refresh()
@@ -59,7 +67,7 @@ export default function CompetitorsSection({
     const res = await fetch(`/api/apps/${appId}/competitors`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ platform, storeId: hit.storeId }),
+      body: JSON.stringify({ platform, storeId: hit.storeId, country }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -86,7 +94,12 @@ export default function CompetitorsSection({
 
       {showSearch && (
         <div className="rounded-xl border border-border bg-card p-4">
-          <AppSearchPicker platform={platform} allowPlatformChange={false} onSelect={handleSelect} />
+          <AppSearchPicker
+            platform={platform}
+            country={country}
+            allowPlatformChange={false}
+            onSelect={handleSelect}
+          />
         </div>
       )}
       {error && <div className="text-sm text-red-500 animate-fade-in-up">{error}</div>}
@@ -106,10 +119,7 @@ export default function CompetitorsSection({
                 <th className="p-3 font-medium sticky left-0 bg-card">Competitor</th>
                 {keywords.map((k) => (
                   <th key={k.id} className="p-3 font-medium whitespace-nowrap">
-                    <span className="inline-flex items-center gap-1.5">
-                      {k.term}
-                      <CountryChip country={k.country} muted />
-                    </span>
+                    {k.term}
                   </th>
                 ))}
                 <th className="p-3 font-medium"></th>
@@ -126,10 +136,12 @@ export default function CompetitorsSection({
                   >
                     <td className="p-3 font-medium sticky left-0 bg-card whitespace-nowrap transition-colors group-hover:bg-background">
                       <a
-                        href={competitorUrl(platform, c.storeId, c.name)}
+                        href={competitorUrl(platform, c.storeId, c.name, country)}
                         target="_blank"
                         rel="noreferrer"
-                        title={platform === "ANDROID" ? "Open on Google Play" : "Search on the App Store"}
+                        title={
+                          platform === "ANDROID" ? "Open on Google Play" : "Search on the App Store"
+                        }
                         className="flex items-center gap-2 hover:text-accent"
                       >
                         <AppIcon
@@ -151,12 +163,20 @@ export default function CompetitorsSection({
                       if (rank.position === null) {
                         const checked = new Date(rank.checkedAt).toLocaleDateString();
                         return (
-                          <td key={k.id} className="p-3 text-muted" title={`Checked ${checked} - not found in top results`}>
+                          <td
+                            key={k.id}
+                            className="p-3 text-muted"
+                            title={`Checked ${checked} - not found in top results`}
+                          >
                             —
                           </td>
                         );
                       }
-                      return <td key={k.id} className="p-3">#{rank.position}</td>;
+                      return (
+                        <td key={k.id} className="p-3">
+                          #{rank.position}
+                        </td>
+                      );
                     })}
                     <td className="p-3 text-right">
                       <button

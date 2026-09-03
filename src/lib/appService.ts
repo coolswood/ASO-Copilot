@@ -14,7 +14,11 @@ import * as stores from "@/lib/stores";
 import type { StorePlatform, StoreListing } from "@/lib/stores/types";
 import { computeHealthReport } from "@/lib/health";
 import { extractSeedTerms, scoreKeywordIdea } from "@/lib/research";
-import { computeReviewAnalysis, GENERIC_SENTIMENT_WORDS, type ReviewAnalysis } from "@/lib/reviewAnalysis";
+import {
+  computeReviewAnalysis,
+  GENERIC_SENTIMENT_WORDS,
+  type ReviewAnalysis,
+} from "@/lib/reviewAnalysis";
 import { fetchDailyActiveUsers } from "@/lib/posthogIntegration";
 import { SCAN_COUNTRIES } from "@/lib/countries";
 
@@ -33,6 +37,7 @@ const APP_COLUMNS = {
   platform: apps.platform,
   storeId: apps.storeId,
   name: apps.name,
+  country: apps.country,
   developer: apps.developer,
   iconUrl: apps.iconUrl,
   url: apps.url,
@@ -76,11 +81,14 @@ async function findKeyword(id: string): Promise<Keyword> {
   return keyword;
 }
 
-function appCreateData(platform: StorePlatform, listing: StoreListing) {
+function appCreateData(platform: StorePlatform, listing: StoreListing, country: string) {
   return {
     platform,
     storeId: listing.storeId,
     name: listing.name,
+    // Home storefront the app was added for - later the fallback for the
+    // global country selector and the storefront of the daily sync pass.
+    country,
     developer: listing.developer,
     iconUrl: listing.iconUrl,
     url: listing.url,
@@ -98,18 +106,32 @@ function appCreateData(platform: StorePlatform, listing: StoreListing) {
   };
 }
 
-export async function createApp(platform: StorePlatform, storeId: string, country = DEFAULT_COUNTRY) {
+export async function createApp(
+  platform: StorePlatform,
+  storeId: string,
+  country = DEFAULT_COUNTRY,
+) {
   const listing = await stores.getListing(platform, storeId, country);
   if (!listing) throw new Error("App not found on the store");
 
-  const [app] = await db.insert(apps).values(appCreateData(platform, listing)).returning(APP_COLUMNS);
+  const [app] = await db
+    .insert(apps)
+    .values(appCreateData(platform, listing, country))
+    .returning(APP_COLUMNS);
 
   await autoDetectKeywords(app.id, country);
   return app;
 }
 
 export type CreateAppProgressEvent =
-  | { stage: "listing"; name: string; iconUrl: string | null; developer: string | null; subtitle: string | null; category: string | null }
+  | {
+      stage: "listing";
+      name: string;
+      iconUrl: string | null;
+      developer: string | null;
+      subtitle: string | null;
+      category: string | null;
+    }
   | { stage: "app_created"; appId: string }
   | { stage: "keyword"; term: string; rank: number | null }
   | { stage: "competitor"; name: string; iconUrl: string | null }
@@ -142,7 +164,10 @@ export async function* createAppWithProgress(
     category: listing.category,
   };
 
-  const [app] = await db.insert(apps).values(appCreateData(platform, listing)).returning(APP_COLUMNS);
+  const [app] = await db
+    .insert(apps)
+    .values(appCreateData(platform, listing, country))
+    .returning(APP_COLUMNS);
   yield { stage: "app_created", appId: app.id };
 
   for await (const { keyword, rank } of autoDetectKeywordsGen(app.id, country)) {
@@ -159,9 +184,12 @@ export async function* createAppWithProgress(
   yield { stage: "done", appId: app.id };
 }
 
-export async function syncAppMetadata(appId: string, country = DEFAULT_COUNTRY) {
+/** Re-fetches the app's live listing. The storefront defaults to the app's
+ * own home country (apps.country), so an explicit sync without a country
+ * refreshes the market the app was added for rather than a hardcoded "us". */
+export async function syncAppMetadata(appId: string, country?: string) {
   const app = await findApp(appId);
-  const listing = await stores.getListing(app.platform, app.storeId, country);
+  const listing = await stores.getListing(app.platform, app.storeId, country ?? app.country);
   if (!listing) return app;
 
   const [updated] = await db
@@ -192,7 +220,9 @@ export async function syncAppMetadata(appId: string, country = DEFAULT_COUNTRY) 
 
 export async function recomputeHealth(appId: string) {
   const app = await findApp(appId);
-  const appCompetitors = await db.query.competitors.findMany({ where: eq(competitors.appId, appId) });
+  const appCompetitors = await db.query.competitors.findMany({
+    where: eq(competitors.appId, appId),
+  });
   const appKeywords = await db.query.keywords.findMany({
     where: eq(keywords.appId, appId),
     columns: { term: true },
@@ -301,7 +331,9 @@ async function trackKeyword(app: App, keywordId: string): Promise<number | null>
   const position = await stores.findRank(app.platform, keyword.term, app.storeId, keyword.country);
   await db.insert(keywordRanks).values({ keywordId, position });
 
-  const appCompetitors = await db.query.competitors.findMany({ where: eq(competitors.appId, app.id) });
+  const appCompetitors = await db.query.competitors.findMany({
+    where: eq(competitors.appId, app.id),
+  });
   for (const competitor of appCompetitors) {
     await trackCompetitorForKeyword(competitor, keyword.id, keyword.term, keyword.country);
   }
@@ -321,7 +353,10 @@ async function trackCompetitorForKeyword(
 /** Same detection as autoDetectCompetitors, but yields each competitor as
  * it's added instead of returning them all at once - see
  * autoDetectKeywordsGen for why. */
-async function* autoDetectCompetitorsGen(appId: string, country = DEFAULT_COUNTRY): AsyncGenerator<Competitor> {
+async function* autoDetectCompetitorsGen(
+  appId: string,
+  country = DEFAULT_COUNTRY,
+): AsyncGenerator<Competitor> {
   const app = await findApp(appId);
   const existing = await db.query.competitors.findMany({
     where: eq(competitors.appId, appId),
@@ -330,7 +365,9 @@ async function* autoDetectCompetitorsGen(appId: string, country = DEFAULT_COUNTR
   const existingIds = new Set(existing.map((c) => c.storeId));
 
   const seeds = extractSeedTerms(`${app.title ?? ""} ${app.subtitle ?? ""}`, 3);
-  const hitsBySeed = await Promise.all(seeds.map((seed) => stores.search(app.platform, seed, country, 10)));
+  const hitsBySeed = await Promise.all(
+    seeds.map((seed) => stores.search(app.platform, seed, country, 10)),
+  );
 
   const candidates = new Map<string, number>();
   for (const hits of hitsBySeed) {
@@ -385,6 +422,9 @@ export async function addCompetitor(
       platform,
       storeId: listing.storeId,
       name: listing.name,
+      // Storefront the competitor is compared in - part of its identity, so
+      // the same store app can be tracked as a competitor in several markets.
+      country,
       iconUrl: listing.iconUrl,
       rating: listing.rating,
       ratingCount: listing.ratingCount,
@@ -427,7 +467,10 @@ export interface CountryRankResult {
  * just dropped (rendered as "not scanned" on the map) rather than failing
  * the whole scan, matching the tolerant pattern already used for scoring
  * keyword candidates in src/lib/research.ts. */
-export async function runGlobalScan(appId: string, keywordId: string): Promise<CountryRankResult[]> {
+export async function runGlobalScan(
+  appId: string,
+  keywordId: string,
+): Promise<CountryRankResult[]> {
   const [app, keyword] = await Promise.all([findApp(appId), findKeyword(keywordId)]);
 
   const settled = await Promise.allSettled(
@@ -500,11 +543,18 @@ export async function syncReviews(appId: string, country = DEFAULT_COUNTRY) {
 
 /** Rating distribution + heuristic positive/negative theme extraction over
  * every review stored for the app so far. Doesn't hit the store itself - call
- * syncReviews first (or pass refresh through the API route) to pull new ones. */
-export async function getReviewAnalysis(appId: string): Promise<ReviewAnalysis> {
+ * syncReviews first (or pass refresh through the API route) to pull new ones.
+ * With `country`, only reviews synced for that storefront are aggregated -
+ * review language and sentiment differ per market, so a per-country view is
+ * the meaningful one for the global selector. */
+export async function getReviewAnalysis(appId: string, country?: string): Promise<ReviewAnalysis> {
   const [app, reviewRows] = await Promise.all([
     db.query.apps.findFirst({ where: eq(apps.id, appId), columns: { name: true } }),
-    db.query.reviews.findMany({ where: eq(reviews.appId, appId) }),
+    db.query.reviews.findMany({
+      where: country
+        ? and(eq(reviews.appId, appId), eq(reviews.country, country))
+        : eq(reviews.appId, appId),
+    }),
   ]);
   if (!app) throw new Error(`App ${appId} not found`);
   return computeReviewAnalysis(reviewRows, app.name);
@@ -526,12 +576,20 @@ const MAX_GAP_CANDIDATES = 8;
  * for keyword discovery. Scores each untracked term the same way keyword
  * research does (live store search), so it's directly comparable/actionable,
  * not just a raw word list. */
-export async function findReviewKeywordGaps(appId: string, country = DEFAULT_COUNTRY): Promise<ReviewKeywordGap[]> {
+export async function findReviewKeywordGaps(
+  appId: string,
+  country = DEFAULT_COUNTRY,
+): Promise<ReviewKeywordGap[]> {
   const [app, existingKeywords, analysis] = await Promise.all([
     findApp(appId),
-    db.query.keywords.findMany({ where: eq(keywords.appId, appId), columns: { term: true } }),
-    getReviewAnalysis(appId),
+    db.query.keywords.findMany({
+      where: eq(keywords.appId, appId),
+      columns: { term: true, country: true },
+    }),
+    getReviewAnalysis(appId, country),
   ]);
+  // A term tracked for any storefront counts as targeted - the gap list is
+  // about missed words, not missed per-market coverage.
   const trackedTerms = new Set(existingKeywords.map((k) => k.term));
 
   const mentionCounts = new Map<string, number>();
@@ -570,7 +628,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * no ASO tool has access to this since none of them integrate with a
  * product-analytics platform. Returns null if PostHog isn't connected, so the
  * caller can render a "connect PostHog" prompt instead of an empty chart. */
-export async function getProductHealthTrend(appId: string, days = 30): Promise<ProductHealthPoint[] | null> {
+export async function getProductHealthTrend(
+  appId: string,
+  days = 30,
+): Promise<ProductHealthPoint[] | null> {
   // The only query allowed to pull the API credential - everything else
   // selects around it (APP_COLUMNS / findApp).
   const creds = await db.query.apps.findFirst({
@@ -615,45 +676,69 @@ export async function getProductHealthTrend(appId: string, days = 30): Promise<P
 
 /** Runs the full daily pass for every tracked app: refresh metadata, health
  * score, and keyword/competitor rank positions. Meant to be triggered once a
- * day by an external cron hitting POST /api/track. */
-export async function runDailyTracking(country = DEFAULT_COUNTRY) {
+ * day by an external cron hitting POST /api/track. Metadata and reviews use
+ * each app's own home storefront (app.country) - keywords always use their
+ * own keyword.country, see the loop below. */
+export async function runDailyTracking() {
   const trackedApps = await db.query.apps.findMany({ columns: { posthogApiKey: false } });
-  const summary = { apps: 0, keywordsTracked: 0, competitorsTracked: 0, reviewsSynced: 0, errors: [] as string[] };
+  const summary = {
+    apps: 0,
+    keywordsTracked: 0,
+    competitorsTracked: 0,
+    reviewsSynced: 0,
+    errors: [] as string[],
+  };
 
   for (const app of trackedApps) {
     try {
-      await syncAppMetadata(app.id, country);
+      await syncAppMetadata(app.id, app.country);
       summary.apps += 1;
 
       try {
-        const { synced } = await syncReviews(app.id, country);
+        const { synced } = await syncReviews(app.id, app.country);
         summary.reviewsSynced += synced;
       } catch (e) {
         summary.errors.push(`reviews (${app.name}): ${(e as Error).message}`);
       }
 
       const appKeywords = await db.query.keywords.findMany({ where: eq(keywords.appId, app.id) });
-      const appCompetitors = await db.query.competitors.findMany({ where: eq(competitors.appId, app.id) });
+      const appCompetitors = await db.query.competitors.findMany({
+        where: eq(competitors.appId, app.id),
+      });
 
-      // Each keyword is checked in its own storefront, not the pass-wide
-      // default - a keyword added for the Russian storefront must keep being
-      // tracked there even though metadata/reviews use the default country.
+      // Each keyword is checked in its own storefront, not the app's home
+      // country - a keyword added for the Russian storefront must keep being
+      // tracked there even though metadata/reviews use the app's storefront.
       for (const keyword of appKeywords) {
         try {
-          const position = await stores.findRank(app.platform, keyword.term, app.storeId, keyword.country);
+          const position = await stores.findRank(
+            app.platform,
+            keyword.term,
+            app.storeId,
+            keyword.country,
+          );
           await db.insert(keywordRanks).values({ keywordId: keyword.id, position });
           summary.keywordsTracked += 1;
 
           for (const competitor of appCompetitors) {
             try {
-              await trackCompetitorForKeyword(competitor, keyword.id, keyword.term, keyword.country);
+              await trackCompetitorForKeyword(
+                competitor,
+                keyword.id,
+                keyword.term,
+                keyword.country,
+              );
               summary.competitorsTracked += 1;
             } catch (e) {
-              summary.errors.push(`competitor ${competitor.name}/${keyword.term}: ${(e as Error).message}`);
+              summary.errors.push(
+                `competitor ${competitor.name}/${keyword.term}: ${(e as Error).message}`,
+              );
             }
           }
         } catch (e) {
-          summary.errors.push(`keyword ${keyword.term}/${keyword.country} (${app.name}): ${(e as Error).message}`);
+          summary.errors.push(
+            `keyword ${keyword.term}/${keyword.country} (${app.name}): ${(e as Error).message}`,
+          );
         }
       }
     } catch (e) {

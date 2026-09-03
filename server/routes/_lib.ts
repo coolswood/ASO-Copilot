@@ -8,6 +8,7 @@ export const APP_RETURNING_COLUMNS = {
   platform: apps.platform,
   storeId: apps.storeId,
   name: apps.name,
+  country: apps.country,
   developer: apps.developer,
   iconUrl: apps.iconUrl,
   url: apps.url,
@@ -29,6 +30,31 @@ export const APP_RETURNING_COLUMNS = {
   posthogProjectId: apps.posthogProjectId,
   posthogConnectedAt: apps.posthogConnectedAt,
 } as const;
+
+/** Narrows an app detail payload (REST GET /api/apps/:id and MCP get_app,
+ * both Drizzle relational findFirst results) to one storefront: keywords of
+ * that country, competitors tracked for it, and competitor ranks trimmed to
+ * the returned keywords - each rank belongs to exactly one keyword, whose
+ * country decides its market. */
+export function filterAppDetailByCountry<
+  Keyword extends { id: string; country: string },
+  Rank extends { keywordId: string },
+  Competitor extends { country: string; ranks: Rank[] },
+  App extends { keywords: Keyword[]; competitors: Competitor[] },
+>(app: App, country: string): App {
+  const keywords = app.keywords.filter((k) => k.country === country);
+  const keywordIds = new Set(keywords.map((k) => k.id));
+  return {
+    ...app,
+    keywords,
+    competitors: app.competitors
+      .filter((competitor) => competitor.country === country)
+      .map((competitor) => ({
+        ...competitor,
+        ranks: competitor.ranks.filter((rank) => keywordIds.has(rank.keywordId)),
+      })),
+  };
+}
 
 /** Postgres.js equivalent of the old `message.includes("Unique constraint")`
  * duplicate check the Next.js routes did on Prisma errors: a unique-violation
