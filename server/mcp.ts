@@ -798,7 +798,7 @@ app.post("/", async (c) => {
 // standalone SSE stream to open - 405, the same JSON-RPC error body the old
 // adapter returned for GET on the streamable endpoint (and the
 // SDK's own "method not allowed" shape).
-app.get("/", (c) =>
+app.get("/", (_c) =>
   jsonRpcError(405, -32000, "Method not allowed."),
 );
 
