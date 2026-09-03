@@ -247,12 +247,16 @@ const handler = createMcpHandler(
       {
         title: "Track a keyword",
         description:
-          "Adds a keyword to track for an app and immediately records its current search rank position (and competitors' positions for that keyword).",
-        inputSchema: { appId: z.string().min(1), term: z.string().min(1) },
+          "Adds a keyword to track for an app and immediately records its current search rank position (and competitors' positions for that keyword). The optional country (lowercase ISO 3166-1 alpha-2, e.g. \"us\", \"de\", \"ru\") picks the storefront to track in - the storefront decides which language's search results the term competes in, so pass the market the keyword is written for. Defaults to \"us\".",
+        inputSchema: {
+          appId: z.string().min(1),
+          term: z.string().min(1),
+          country: z.string().length(2).optional(),
+        },
       },
-      async ({ appId, term }) => {
+      async ({ appId, term, country }) => {
         try {
-          const keyword = await addKeyword(appId, term);
+          const keyword = await addKeyword(appId, term, country?.toLowerCase());
           await recomputeHealth(appId);
           return json(keyword);
         } catch (e) {
@@ -266,12 +270,12 @@ const handler = createMcpHandler(
       {
         title: "Auto-detect keywords",
         description:
-          "Derives keyword candidates from the app's own title and subtitle (no store search needed) and starts tracking any that aren't already tracked. Use this instead of guessing keywords manually.",
-        inputSchema: { appId: z.string().min(1) },
+          "Derives keyword candidates from the app's own title and subtitle (no store search needed) and starts tracking any that aren't already tracked. Use this instead of guessing keywords manually. The optional country (lowercase ISO 3166-1 alpha-2) sets the storefront the detected keywords are tracked in; defaults to \"us\".",
+        inputSchema: { appId: z.string().min(1), country: z.string().length(2).optional() },
       },
-      async ({ appId }) => {
+      async ({ appId, country }) => {
         try {
-          const added = await autoDetectKeywords(appId);
+          const added = await autoDetectKeywords(appId, country?.toLowerCase());
           return json(added);
         } catch (e) {
           return errorResult(e);
@@ -283,7 +287,8 @@ const handler = createMcpHandler(
       "list_keywords",
       {
         title: "List tracked keywords",
-        description: "Lists an app's tracked keywords with recent rank history.",
+        description:
+          "Lists an app's tracked keywords with recent rank history. Each keyword carries the storefront (country) its rank is tracked in.",
         inputSchema: { appId: z.string().min(1) },
       },
       async ({ appId }) => {

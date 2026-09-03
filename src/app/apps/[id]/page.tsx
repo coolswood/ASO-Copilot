@@ -43,7 +43,7 @@ export default async function AppDetailPage({
   if (!app) notFound();
 
   const report = app.healthReports[0];
-  const keywordRefs = app.keywords.map((k) => ({ id: k.id, term: k.term }));
+  const keywordRefs = app.keywords.map((k) => ({ id: k.id, term: k.term, country: k.country }));
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">

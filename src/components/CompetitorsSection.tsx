@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Users } from "lucide-react";
 import AppSearchPicker, { SearchHit } from "./AppSearchPicker";
 import AppIcon from "./AppIcon";
+import { CountryChip } from "./countryShared";
 import { appStoreSearchUrl, playStoreListingUrl } from "@/lib/storeLinks";
 import type { StorePlatform } from "@/lib/stores/types";
 
@@ -47,7 +48,7 @@ export default function CompetitorsSection({
   appId: string;
   platform: StorePlatform;
   competitors: CompetitorWithRanks[];
-  keywords: { id: string; term: string }[];
+  keywords: { id: string; term: string; country: string }[];
 }) {
   const router = useRouter();
   const [showSearch, setShowSearch] = useState(false);
@@ -105,7 +106,10 @@ export default function CompetitorsSection({
                 <th className="p-3 font-medium sticky left-0 bg-card">Competitor</th>
                 {keywords.map((k) => (
                   <th key={k.id} className="p-3 font-medium whitespace-nowrap">
-                    {k.term}
+                    <span className="inline-flex items-center gap-1.5">
+                      {k.term}
+                      <CountryChip country={k.country} muted />
+                    </span>
                   </th>
                 ))}
                 <th className="p-3 font-medium"></th>

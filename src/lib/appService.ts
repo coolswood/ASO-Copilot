@@ -157,14 +157,14 @@ export async function recomputeHealth(appId: string) {
 
 export async function addKeyword(appId: string, term: string, country = DEFAULT_COUNTRY) {
   const keyword = await prisma.keyword.create({
-    data: { appId, term: term.trim().toLowerCase() },
+    data: { appId, term: term.trim().toLowerCase(), country },
   });
 
   // Rank lookups hit live store search for the app + every competitor, which
   // can take a few seconds - don't make the caller wait on that.
   after(async () => {
     const app = await prisma.app.findUniqueOrThrow({ where: { id: appId } });
-    await trackKeyword(app, keyword.id, country);
+    await trackKeyword(app, keyword.id);
   });
 
   return keyword;
@@ -179,16 +179,18 @@ async function* autoDetectKeywordsGen(
   country = DEFAULT_COUNTRY,
 ): AsyncGenerator<{ keyword: Awaited<ReturnType<typeof prisma.keyword.create>>; rank: number | null }> {
   const app = await prisma.app.findUniqueOrThrow({ where: { id: appId } });
-  const existing = await prisma.keyword.findMany({ where: { appId }, select: { term: true } });
-  const existingTerms = new Set(existing.map((k) => k.term));
+  // Dedupe per storefront: the same term tracked for another country is a
+  // different keyword and shouldn't suppress detection here.
+  const existing = await prisma.keyword.findMany({ where: { appId }, select: { term: true, country: true } });
+  const existingKeys = new Set(existing.map((k) => `${k.term}\u0000${k.country}`));
 
   const seeds = extractSeedTerms(`${app.title ?? ""} ${app.subtitle ?? ""}`, 8);
-  const newTerms = seeds.filter((term) => !existingTerms.has(term));
+  const newTerms = seeds.filter((term) => !existingKeys.has(`${term}\u0000${country}`));
 
   for (const term of newTerms) {
     try {
-      const keyword = await prisma.keyword.create({ data: { appId, term } });
-      const rank = await trackKeyword(app, keyword.id, country);
+      const keyword = await prisma.keyword.create({ data: { appId, term, country } });
+      const rank = await trackKeyword(app, keyword.id);
       yield { keyword, rank };
     } catch {
       // unique constraint races or store hiccups shouldn't block the rest
@@ -213,14 +215,18 @@ export async function autoDetectKeywords(appId: string, country = DEFAULT_COUNTR
   return added;
 }
 
-async function trackKeyword(app: App, keywordId: string, country = DEFAULT_COUNTRY): Promise<number | null> {
+/** Records the app's (and every competitor's) current rank for one keyword.
+ * The storefront is always the keyword's own `country` - it travels with the
+ * keyword row, so callers can't accidentally check a US rank for a keyword
+ * the user added for the German storefront. */
+async function trackKeyword(app: App, keywordId: string): Promise<number | null> {
   const keyword = await prisma.keyword.findUniqueOrThrow({ where: { id: keywordId } });
-  const position = await stores.findRank(app.platform, keyword.term, app.storeId, country);
+  const position = await stores.findRank(app.platform, keyword.term, app.storeId, keyword.country);
   await prisma.keywordRank.create({ data: { keywordId, position } });
 
   const competitors = await prisma.competitor.findMany({ where: { appId: app.id } });
   for (const competitor of competitors) {
-    await trackCompetitorForKeyword(competitor, keyword.id, keyword.term, country);
+    await trackCompetitorForKeyword(competitor, keyword.id, keyword.term, keyword.country);
   }
   return position;
 }
@@ -318,7 +324,7 @@ export async function addCompetitor(
     const keywords = await prisma.keyword.findMany({ where: { appId } });
     for (const keyword of keywords) {
       try {
-        await trackCompetitorForKeyword(competitor, keyword.id, keyword.term, country);
+        await trackCompetitorForKeyword(competitor, keyword.id, keyword.term, keyword.country);
       } catch {
         // best-effort backfill, a failed keyword shouldn't block the rest
       }
@@ -539,22 +545,25 @@ export async function runDailyTracking(country = DEFAULT_COUNTRY) {
       const keywords = await prisma.keyword.findMany({ where: { appId: app.id } });
       const competitors = await prisma.competitor.findMany({ where: { appId: app.id } });
 
+      // Each keyword is checked in its own storefront, not the pass-wide
+      // default - a keyword added for the Russian storefront must keep being
+      // tracked there even though metadata/reviews use the default country.
       for (const keyword of keywords) {
         try {
-          const position = await stores.findRank(app.platform, keyword.term, app.storeId, country);
+          const position = await stores.findRank(app.platform, keyword.term, app.storeId, keyword.country);
           await prisma.keywordRank.create({ data: { keywordId: keyword.id, position } });
           summary.keywordsTracked += 1;
 
           for (const competitor of competitors) {
             try {
-              await trackCompetitorForKeyword(competitor, keyword.id, keyword.term, country);
+              await trackCompetitorForKeyword(competitor, keyword.id, keyword.term, keyword.country);
               summary.competitorsTracked += 1;
             } catch (e) {
               summary.errors.push(`competitor ${competitor.name}/${keyword.term}: ${(e as Error).message}`);
             }
           }
         } catch (e) {
-          summary.errors.push(`keyword ${keyword.term} (${app.name}): ${(e as Error).message}`);
+          summary.errors.push(`keyword ${keyword.term}/${keyword.country} (${app.name}): ${(e as Error).message}`);
         }
       }
     } catch (e) {

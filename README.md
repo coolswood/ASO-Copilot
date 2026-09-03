@@ -17,6 +17,9 @@ https://github.com/user-attachments/assets/970ce32e-a980-42ce-a0eb-529c425439af
 ## Features
 
 - **Daily keyword rank tracking** — real ranks from live App Store / Google Play search results
+- **Per-storefront keywords** — every keyword belongs to a storefront (country); the same term can
+  be tracked in several markets, each with its own rank history, and the keyword list filters by
+  storefront
 - **Unlimited apps, keywords, competitors** — it's your database, no plan limits
 - **Competitor spy** — track competitor apps and see their rank for every keyword you track
 - **Health score analysis** — title/subtitle/screenshots/description/ratings/freshness breakdown
