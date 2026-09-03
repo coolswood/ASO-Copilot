@@ -5,7 +5,9 @@ import { Search as SearchIcon, SearchX, SlidersHorizontal } from "lucide-react";
 import { SiAppstore, SiGoogleplay } from "react-icons/si";
 import AppIcon from "@/components/AppIcon";
 import MetricBar from "@/components/MetricBar";
+import { storefrontLabel } from "@/components/countryShared";
 import { appStoreSearchUrl, playStoreSearchUrl } from "@/lib/storeLinks";
+import { SCAN_COUNTRIES } from "@/lib/countries";
 import type { StorePlatform } from "@/lib/stores/types";
 
 interface RankingApp {
@@ -66,6 +68,7 @@ function clamp(value: number): number {
 
 export default function KeywordSearchPage() {
   const [platform, setPlatform] = useState<StorePlatform>("ANDROID");
+  const [country, setCountry] = useState("us");
   const [term, setTerm] = useState("");
   const [deep, setDeep] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -100,7 +103,7 @@ export default function KeywordSearchPage() {
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({ platform, term: term.trim() });
+      const params = new URLSearchParams({ platform, term: term.trim(), country });
       if (deep) params.set("deep", "1");
       const res = await fetch(`/api/keyword-ideas?${params}`);
       const data = await res.json();
@@ -130,6 +133,19 @@ export default function KeywordSearchPage() {
         >
           <option value="ANDROID">Google Play</option>
           <option value="IOS">App Store</option>
+        </select>
+        <select
+          value={country}
+          onChange={(e) => setCountry(e.target.value)}
+          title="Storefront to search in - demand, difficulty and ranking apps are measured against this market's own results"
+          aria-label="Storefront country"
+          className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted transition-colors hover:border-accent"
+        >
+          {SCAN_COUNTRIES.map((c) => (
+            <option key={c} value={c}>
+              {storefrontLabel(c)} ({c})
+            </option>
+          ))}
         </select>
         <input
           value={term}
