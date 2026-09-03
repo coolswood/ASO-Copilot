@@ -11,11 +11,28 @@ services:
     volumes:
       - aso_pg_data:/var/lib/postgresql/data
 
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://aso:aso@db:5432/aso
+      CRON_SECRET: ${CRON_SECRET:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
+    # Host port is configurable; 3001 by default so a dev server on :3000
+    # doesn't clash. Migrations are applied from the host:
+    # `DATABASE_URL=postgresql://aso:aso@localhost:5433/aso bun run db:migrate`.
+    ports:
+      - "${APP_PORT:-3001}:3000"
+    depends_on:
+      - db
+
   cron:
     build: ./docker/cron
     restart: unless-stopped
     environment:
-      APP_URL: ${APP_URL:-http://host.docker.internal:3000}
+      APP_URL: ${APP_URL:-http://app:3000}
       CRON_SECRET: ${CRON_SECRET}
       CRON_SCHEDULE: ${CRON_SCHEDULE:-0 6 * * *}
     volumes:
